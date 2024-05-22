@@ -1,5 +1,6 @@
 extern crate sdl2;
 
+mod math;
 mod game;
 
 use std::{
@@ -10,6 +11,7 @@ use std::{
 };
 
 use ecs::{Entity, Resource, World};
+use math::Vec3;
 use sdl2::{
     event::Event,
     image::{InitFlag, LoadTexture},
@@ -19,63 +21,6 @@ use sdl2::{
     render::{Canvas, RenderTarget, Texture, TextureCreator},
     video::{Window, WindowContext},
 };
-
-#[derive(Clone, Copy)]
-struct Vec2F {
-    x: f32,
-    y: f32,
-}
-
-#[allow(dead_code)]
-impl Vec2F {
-    pub fn new(x: f32, y: f32) -> Vec2F {
-        return Vec2F { x, y };
-    }
-
-    pub fn zero() -> Vec2F {
-        return Vec2F { x: 0.0, y: 0.0 };
-    }
-
-    pub fn magnitude(&self) -> f32 {
-        f32::sqrt(self.x.powi(2) + self.y.powi(2))
-    }
-
-    pub fn normalize(&mut self) {
-        self.x /= self.magnitude();
-        self.y /= self.magnitude();
-    }
-
-    pub fn scale(&mut self, scale: f32) {
-        self.x *= scale;
-        self.y *= scale;
-    }
-
-    pub fn scaled(&self, scale: f32) -> Vec2F {
-        Vec2F::new(self.x * scale, self.y * scale)
-    }
-}
-
-#[derive(Clone, Copy)]
-struct Vec3F {
-    x: f32,
-    y: f32,
-    z: f32,
-}
-
-#[allow(dead_code)]
-impl Vec3F {
-    pub fn new(x: f32, y: f32, z: f32) -> Vec3F {
-        return Vec3F { x, y, z };
-    }
-
-    pub fn zero() -> Vec3F {
-        return Vec3F {
-            x: 0.0,
-            y: 0.0,
-            z: 0.0,
-        };
-    }
-}
 
 #[derive(Clone, Copy)]
 struct TextureID(usize);
@@ -114,28 +59,26 @@ impl TextureRepository {
     }
 }
 
-struct TextureWithDepth {
+struct DrawCmd { // TODO dunno what to call this
     texture_id: TextureID,
-    x: i32,
-    y: i32,
+    pos: Vec3<i32>,
     w: u32,
     h: u32,
-    depth: i32,
 }
 
-impl PartialEq for TextureWithDepth {
+impl PartialEq for DrawCmd {
     fn eq(&self, other: &Self) -> bool {
-        self.depth == other.depth
+        self.pos.z == other.pos.z
     }
 }
 
-impl Eq for TextureWithDepth {}
+impl Eq for DrawCmd {}
 
-impl PartialOrd for TextureWithDepth {
+impl PartialOrd for DrawCmd {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        if self.depth == other.depth {
+        if self.pos.z == other.pos.z {
             Some(std::cmp::Ordering::Equal)
-        } else if self.depth > other.depth {
+        } else if self.pos.z > other.pos.z {
             Some(std::cmp::Ordering::Less)
         } else {
             Some(std::cmp::Ordering::Greater)
@@ -143,11 +86,11 @@ impl PartialOrd for TextureWithDepth {
     }
 }
 
-impl Ord for TextureWithDepth {
+impl Ord for DrawCmd {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        if self.depth == other.depth {
+        if self.pos.z == other.pos.z {
             std::cmp::Ordering::Equal
-        } else if self.depth > other.depth {
+        } else if self.pos.z > other.pos.z {
             std::cmp::Ordering::Less
         } else {
             std::cmp::Ordering::Greater
@@ -157,7 +100,7 @@ impl Ord for TextureWithDepth {
 
 #[derive(Resource)]
 struct DepthBuffer {
-    buffer: BinaryHeap<TextureWithDepth>,
+    buffer: BinaryHeap<DrawCmd>,
 }
 
 impl DepthBuffer {
@@ -167,7 +110,7 @@ impl DepthBuffer {
         }
     }
 
-    pub fn push(&mut self, texture: TextureWithDepth) {
+    pub fn push(&mut self, texture: DrawCmd) {
         self.buffer.push(texture);
     }
 
@@ -182,7 +125,7 @@ impl DepthBuffer {
                 .copy(
                     texture_repo.get(tex.texture_id),
                     None,
-                    Some(Rect::new(tex.x, tex.y, tex.w as u32, tex.h as u32)),
+                    Some(Rect::new(tex.pos.x, tex.pos.y, tex.w as u32, tex.h as u32)),
                 )
                 .unwrap();
         }

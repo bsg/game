@@ -4,13 +4,16 @@ use ecs::{Component, Entity, Res, ResMut, World};
 use rand::Rng;
 use sdl2::{pixels::Color, rect::Rect};
 
-use crate::{Ctx, DepthBuffer, TextureID, TextureWithDepth, Vec2F};
+use crate::{
+    math::{Vec2, Vec3},
+    Ctx, DepthBuffer, TextureID, DrawCmd,
+};
 
 #[derive(Component, Clone, Copy)]
-struct Position(Vec2F);
+struct Position(Vec2<f32>);
 
 impl Deref for Position {
-    type Target = Vec2F;
+    type Target = Vec2<f32>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -36,13 +39,15 @@ struct Sprite {
 
 impl Sprite {
     pub fn draw(&self, depth_buffer: &mut DepthBuffer, x: i32, y: i32) {
-        depth_buffer.push(TextureWithDepth {
+        depth_buffer.push(DrawCmd {
             texture_id: self.texture_ids[self.texture_index as usize],
-            x: x - (self.width / 2) as i32,
-            y: y - (self.height / 2) as i32,
+            pos: Vec3::new(
+                x - (self.width / 2) as i32,
+                y - (self.height / 2) as i32,
+                y + (self.height / 2) as i32,
+            ),
             w: self.width,
             h: self.height,
-            depth: y + (self.height / 2) as i32,
         });
     }
 }
@@ -114,12 +119,12 @@ struct Enemy {}
 
 #[derive(Component)]
 struct Projectile {
-    pub velocity: Vec2F,
+    pub velocity: Vec2<f32>,
     pub ticks_left: usize,
 }
 
 pub fn init(world: &World) {
-    spawn_player(world, Vec2F::new(400.0, 400.0));
+    spawn_player(world, Vec2::new(400.0, 400.0));
 }
 
 pub fn update(world: &World) {
@@ -137,7 +142,7 @@ pub fn update(world: &World) {
 
         spawn_enemy(
             world,
-            Vec2F::new(
+            Vec2::new(
                 rand::thread_rng().gen_range(x_range) as f32,
                 rand::thread_rng().gen_range(y_range) as f32,
             ),
@@ -180,7 +185,7 @@ pub fn render(world: &World) {
     }
 }
 
-fn spawn_player(world: &World, pos: Vec2F) {
+fn spawn_player(world: &World, pos: Vec2<f32>) {
     let ctx = world.get_resource::<Ctx>().unwrap();
 
     let collider = Collider::new(-20, 40, 40, 24, CH_NAV);
@@ -190,7 +195,7 @@ fn spawn_player(world: &World, pos: Vec2F) {
             fire_cooldown: ctx.player_fire_cooldown,
             can_fire_in: 0,
         },
-        &Position(Vec2F::new(pos.x, pos.y)),
+        &Position(Vec2::new(pos.x, pos.y)),
         &Sprite {
             texture_ids: [
                 ctx.player_textures[0],
@@ -209,12 +214,12 @@ fn spawn_player(world: &World, pos: Vec2F) {
     ]);
 }
 
-fn spawn_enemy(world: &World, pos: Vec2F) {
+fn spawn_enemy(world: &World, pos: Vec2<f32>) {
     let ctx = world.get_resource::<Ctx>().unwrap();
 
     world.spawn(&[
         &Enemy {},
-        &Position(Vec2F::new(pos.x, pos.y)),
+        &Position(Vec2::new(pos.x, pos.y)),
         &Sprite {
             texture_ids: [
                 ctx.enemy_textures[0],
@@ -234,7 +239,7 @@ fn spawn_enemy(world: &World, pos: Vec2F) {
     ]);
 }
 
-fn spawn_bullet(world: &World, pos: Vec2F, velocity_normal: Vec2F) {
+fn spawn_bullet(world: &World, pos: Vec2<f32>, velocity_normal: Vec2<f32>) {
     let ctx = world.get_resource::<Ctx>().unwrap();
 
     let mut collider = Collider::new(-6, -6, 12, 12, CH_PROJECTILE);
@@ -254,7 +259,7 @@ fn spawn_bullet(world: &World, pos: Vec2F, velocity_normal: Vec2F) {
             velocity: velocity_normal.scaled(ctx.bullet_speed),
             ticks_left: ctx.bullet_lifetime,
         },
-        &Position(Vec2F::new(pos.x, pos.y)),
+        &Position(Vec2::new(pos.x, pos.y)),
         &Sprite {
             texture_ids: [
                 ctx.bullet_textures[0],
@@ -296,7 +301,7 @@ fn update_player(world: &World) {
             }
 
             if player.can_fire_in == 0 {
-                let mut trajectory = Vec2F::zero();
+                let mut trajectory = Vec2::zero();
 
                 if ctx.input.fire_right {
                     trajectory.x += 1.0;
@@ -312,7 +317,7 @@ fn update_player(world: &World) {
                 }
 
                 if trajectory.magnitude() > 0.0 {
-                    spawn_bullet(world, Vec2F { x: pos.x, y: pos.y }, trajectory);
+                    spawn_bullet(world, Vec2::new(pos.x, pos.y), trajectory);
                     player.can_fire_in = player.fire_cooldown;
                 }
             }
@@ -321,7 +326,7 @@ fn update_player(world: &World) {
 }
 
 fn update_enemies(world: &World) {
-    let mut player_pos = Position(Vec2F::zero());
+    let mut player_pos = Position(Vec2::zero());
 
     world.run(|_: &Player, pos: &Position| {
         player_pos = *pos;
@@ -329,10 +334,7 @@ fn update_enemies(world: &World) {
 
     world.run(
         |_: &Enemy, pos: &mut Position, collider: &mut Collider, ctx: Res<Ctx>| {
-            let mut v = Vec2F {
-                x: player_pos.x - pos.x,
-                y: player_pos.y - pos.y,
-            };
+            let mut v = Vec2::<f32>::new(player_pos.x - pos.x, player_pos.y - pos.y);
 
             v.normalize();
             v.scale(ctx.enemy_speed);
