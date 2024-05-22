@@ -1,0 +1,10 @@
+[package]
+name = "game"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+sdl2 = {version = "0.36", default-features = false, features = ["image", "unsafe_textures", "ttf"]}
+ecs = {path = "../ecs"}
+rand = "0.8.5"
+memory-stats = "1.1.0"
