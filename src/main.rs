@@ -1,7 +1,7 @@
 extern crate sdl2;
 
-mod math;
 mod game;
+mod math;
 
 use std::{
     collections::BinaryHeap,
@@ -14,6 +14,7 @@ use ecs::{Entity, Resource, World};
 use math::Vec3;
 use sdl2::{
     event::Event,
+    gfx::primitives::DrawRenderer,
     image::{InitFlag, LoadTexture},
     keyboard::{Keycode, Scancode},
     pixels::Color,
@@ -21,6 +22,8 @@ use sdl2::{
     render::{Canvas, RenderTarget, Texture, TextureCreator},
     video::{Window, WindowContext},
 };
+
+use crate::{game::Light, math::Scalar};
 
 #[derive(Clone, Copy)]
 struct TextureID(usize);
@@ -59,7 +62,8 @@ impl TextureRepository {
     }
 }
 
-struct DrawCmd { // TODO dunno what to call this
+struct DrawCmd {
+    // TODO dunno what to call this
     texture_id: TextureID,
     pos: Vec3<i32>,
     w: u32,
@@ -144,8 +148,27 @@ pub struct Input {
     pub fire_right: bool,
 }
 
+pub struct Lightmap {
+    texture: Texture,
+}
+
+impl Lightmap {
+    pub fn new(canvas: &Canvas<Window>, w: u32, h: u32) -> Lightmap {
+        let mut texture = canvas
+            .texture_creator()
+            .create_texture_target(canvas.default_pixel_format(), 800, 800)
+            .unwrap();
+
+        texture.set_blend_mode(sdl2::render::BlendMode::Mul);
+        Lightmap { texture }
+    }
+}
+
 #[derive(Resource)]
 pub struct Ctx {
+    lightmap: Lightmap,
+    despawn_queue: RwLock<Vec<Entity>>,
+
     player_textures: [TextureID; 3],
     enemy_textures: [TextureID; 2],
     bullet_textures: [TextureID; 2],
@@ -161,8 +184,6 @@ pub struct Ctx {
     enemy_spawn_cooldown: usize,
     enemy_spawn_in: usize,
 
-    despawn_queue: RwLock<Vec<Entity>>,
-
     // Debug
     frame_time_avg: u128,
     update_time_avg: u128,
@@ -170,8 +191,6 @@ pub struct Ctx {
     debug_draw_colliders: bool,
     debug_draw_hitboxes: bool,
 }
-
-unsafe impl Sync for Ctx {}
 
 pub fn main() {
     let world = World::new();
@@ -190,6 +209,7 @@ pub fn main() {
 
     let canvas = window
         .into_canvas()
+        .accelerated()
         .build()
         .map_err(|e| e.to_string())
         .unwrap();
@@ -229,6 +249,9 @@ pub fn main() {
     ];
 
     let ctx = Ctx {
+        despawn_queue: RwLock::new(Vec::new()),
+        lightmap: Lightmap::new(&canvas, 800, 800),
+
         player_textures,
         enemy_textures,
         bullet_textures,
@@ -255,8 +278,6 @@ pub fn main() {
         debug_draw_hitboxes: false,
         bullet_lifetime: 60,
         player_fire_cooldown: 10,
-
-        despawn_queue: RwLock::new(Vec::new()),
 
         frame_time_avg: 0,
         update_time_avg: 0,
@@ -362,11 +383,40 @@ pub fn main() {
         let end = Instant::now().duration_since(update_start);
         ctx.update_time_avg = (ctx.update_time_avg + end.as_micros()) / 2;
 
+        let render_start = Instant::now();
+
+        ctx.canvas
+            .with_texture_canvas(&mut ctx.lightmap.texture, |canvas| {
+                canvas.set_draw_color(Color::RGBA(0, 0, 0, 160));
+                canvas.clear();
+                world.run(|light: &Light| {
+                    let mut color = light.color.clone();
+                    color.a = 255;
+                    canvas
+                        .filled_circle(
+                            light.pos.x as i16,
+                            light.pos.y as i16,
+                            (light.radius as f32 * 0.7) as i16,
+                            color,
+                        )
+                        .unwrap();
+                    color.a = 128;
+                    canvas
+                        .filled_circle(light.pos.x as i16, light.pos.y as i16, light.radius, color)
+                        .unwrap();
+                });
+            })
+            .unwrap();
+
         ctx.canvas.set_draw_color(Color::RGB(16, 16, 16));
         ctx.canvas.clear();
 
-        let render_start = Instant::now();
         game::render(&world);
+
+        ctx.canvas
+            .copy(&ctx.lightmap.texture, None, Rect::new(0, 0, 800, 800))
+            .unwrap();
+
         let end = Instant::now().duration_since(render_start);
         ctx.render_time_avg = (ctx.render_time_avg + end.as_micros()) / 2;
 

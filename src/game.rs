@@ -123,6 +123,13 @@ struct Projectile {
     pub ticks_left: usize,
 }
 
+#[derive(Component)]
+pub struct Light {
+    pub pos: Vec2<i32>,
+    pub radius: i16,
+    pub color: Color,
+}
+
 pub fn init(world: &World) {
     spawn_player(world, Vec2::new(400.0, 400.0));
 }
@@ -155,6 +162,7 @@ pub fn update(world: &World) {
     update_player(world);
     update_enemies(world);
     update_projectiles(world);
+    update_lights(world);
     fix_colliders(world);
     detect_collisions(world);
 
@@ -211,6 +219,11 @@ fn spawn_player(world: &World, pos: Vec2<f32>) {
             swap_at: 20,
         },
         &collider,
+        &Light {
+            pos: Vec2::<i32> {x: pos.x.round() as i32, y: pos.y.round() as i32},
+            radius: 100,
+            color: Color::RGB(255, 255, 255)
+        }
     ]);
 }
 
@@ -495,6 +508,15 @@ fn draw_sprites(world: &World) {
     let depth_buffer = world.get_resource_mut::<DepthBuffer>().unwrap();
     depth_buffer.draw_to_canvas(&mut ctx.canvas, &ctx.textures);
 }
+
+fn update_lights(world: &World) {
+    world.run(|pos: &Position, light: &mut Light| {
+        light.pos.x = pos.x.round() as i32;
+        light.pos.y = pos.y.round() as i32;
+    })
+}
+
+// DEBUG
 
 fn debug_draw_colliders(world: &World) {
     world.run(|collider: &Collider, mut ctx: ResMut<Ctx>| {
