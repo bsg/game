@@ -23,7 +23,7 @@ use sdl2::{
     video::{Window, WindowContext},
 };
 
-use crate::{game::Light, math::Scalar};
+use crate::game::Light;
 
 #[derive(Clone, Copy)]
 struct TextureID(usize);
@@ -156,7 +156,7 @@ impl Lightmap {
     pub fn new(canvas: &Canvas<Window>, w: u32, h: u32) -> Lightmap {
         let mut texture = canvas
             .texture_creator()
-            .create_texture_target(canvas.default_pixel_format(), 800, 800)
+            .create_texture_target(canvas.default_pixel_format(), w, h)
             .unwrap();
 
         texture.set_blend_mode(sdl2::render::BlendMode::Mul);
@@ -172,6 +172,9 @@ pub struct Ctx {
     player_textures: [TextureID; 3],
     enemy_textures: [TextureID; 2],
     bullet_textures: [TextureID; 2],
+    floor_texture: TextureID,
+    wall_texture: TextureID,
+    torch_textures: [TextureID; 3],
     textures: TextureRepository,
     canvas: Canvas<Window>,
     input: Input,
@@ -248,6 +251,17 @@ pub fn main() {
         textures.load_texture(&texture_creator, "assets/textures/bullet_2.png".to_owned()),
     ];
 
+    let floor_texture =
+        textures.load_texture(&texture_creator, "assets/textures/floor.png".to_owned());
+    let wall_texture =
+        textures.load_texture(&texture_creator, "assets/textures/wall.png".to_owned());
+
+    let torch_textures = [
+        textures.load_texture(&texture_creator, "assets/textures/torch_0.png".to_owned()),
+        textures.load_texture(&texture_creator, "assets/textures/torch_1.png".to_owned()),
+        textures.load_texture(&texture_creator, "assets/textures/torch_2.png".to_owned()),
+    ];
+
     let ctx = Ctx {
         despawn_queue: RwLock::new(Vec::new()),
         lightmap: Lightmap::new(&canvas, 800, 800),
@@ -255,6 +269,9 @@ pub fn main() {
         player_textures,
         enemy_textures,
         bullet_textures,
+        floor_texture,
+        wall_texture,
+        torch_textures,
         textures,
         canvas,
         input: Input {
@@ -387,8 +404,9 @@ pub fn main() {
 
         ctx.canvas
             .with_texture_canvas(&mut ctx.lightmap.texture, |canvas| {
-                canvas.set_draw_color(Color::RGBA(0, 0, 0, 160));
+                canvas.set_draw_color(Color::RGBA(0, 0, 0, 180));
                 canvas.clear();
+                canvas.set_blend_mode(sdl2::render::BlendMode::Add);
                 world.run(|light: &Light| {
                     let mut color = light.color.clone();
                     color.a = 255;
@@ -400,7 +418,7 @@ pub fn main() {
                             color,
                         )
                         .unwrap();
-                    color.a = 128;
+                    color.a = 127;
                     canvas
                         .filled_circle(light.pos.x as i16, light.pos.y as i16, light.radius, color)
                         .unwrap();

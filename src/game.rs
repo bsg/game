@@ -1,12 +1,12 @@
 use std::ops::{Deref, DerefMut};
 
-use ecs::{Component, Entity, Res, ResMut, World};
+use ecs::{Component, Entity, Res, ResMut, With, Without, World};
 use rand::Rng;
 use sdl2::{pixels::Color, rect::Rect};
 
 use crate::{
     math::{Vec2, Vec3},
-    Ctx, DepthBuffer, TextureID, DrawCmd,
+    Ctx, DepthBuffer, DrawCmd, TextureID,
 };
 
 #[derive(Component, Clone, Copy)]
@@ -130,8 +130,114 @@ pub struct Light {
     pub color: Color,
 }
 
+#[derive(Component)]
+pub struct Floor {}
+
+#[derive(Component)]
+pub struct Wall {}
+
 pub fn init(world: &World) {
     spawn_player(world, Vec2::new(400.0, 400.0));
+
+    let floor_texture = world.get_resource::<Ctx>().unwrap().floor_texture;
+    let floor_sprite = Sprite {
+        texture_ids: [floor_texture, floor_texture, floor_texture, floor_texture],
+        texture_index: 0,
+        width: 64,
+        height: 64,
+        frames: 1,
+        ticks: 0,
+        swap_at: 0,
+    };
+
+    for tile_x in 0..32 {
+        for tile_y in 0..32 {
+            world.spawn(&[
+                &Floor {},
+                &Position(Vec2::new(tile_x as f32 * 64.0, tile_y as f32 * 64.0)),
+                &floor_sprite,
+            ]);
+        }
+    }
+
+    let wall_texture = world.get_resource::<Ctx>().unwrap().wall_texture;
+    let wall_sprite = Sprite {
+        texture_ids: [wall_texture, wall_texture, wall_texture, wall_texture],
+        texture_index: 0,
+        width: 64,
+        height: 64,
+        frames: 1,
+        ticks: 0,
+        swap_at: 0,
+    };
+
+    for tile_x in 0..32 {
+        let x = tile_x as f32 * 64.0 - 32.0;
+        let y = 32.0;
+        world.spawn(&[
+            &Wall {},
+            &Position(Vec2::new(x, y)),
+            &wall_sprite,
+            &Collider {
+                channels: CH_NAV,
+                x_offset: -32,
+                y_offset: -32,
+                bounds: Rect::new(x.floor() as i32, y.floor() as i32, 64, 64),
+                is_colliding: false,
+                left: false,
+                right: false,
+                top: false,
+                bottom: false,
+                on_collide: None,
+            },
+        ]);
+
+        if tile_x != 7 && tile_x != 8 {
+            world.spawn(&[
+                &Wall {},
+                &Position(Vec2::new(tile_x as f32 * 64.0 - 32.0, 800.0 - 256.0)),
+                &wall_sprite,
+                &Collider {
+                    channels: CH_NAV,
+                    x_offset: -32,
+                    y_offset: 0,
+                    bounds: Rect::new(x.floor() as i32, 800 - 32, 64, 32),
+                    is_colliding: false,
+                    left: false,
+                    right: false,
+                    top: false,
+                    bottom: false,
+                    on_collide: None,
+                },
+            ]);
+        }
+
+        let torch_textures = world.get_resource::<Ctx>().unwrap().torch_textures;
+        let torch_sprite = Sprite {
+            texture_ids: [
+                torch_textures[0],
+                torch_textures[1],
+                torch_textures[0],
+                torch_textures[2],
+            ],
+            texture_index: 0,
+            width: 64,
+            height: 64,
+            frames: 4,
+            ticks: 0,
+            swap_at: 5,
+        };
+
+        world.spawn(&[
+            &Position(Vec2::new(350.0, 570.0)),
+            &torch_sprite,
+            &Light {
+                pos: Vec2::new(350, 570),
+                radius: 100,
+                color: Color::RGB(255, 255, 200),
+            },
+        ]);
+    }
 }
 
 pub fn update(world: &World) {
@@ -220,10 +326,13 @@ fn spawn_player(world: &World, pos: Vec2<f32>) {
         },
         &collider,
         &Light {
-            pos: Vec2::<i32> {x: pos.x.round() as i32, y: pos.y.round() as i32},
+            pos: Vec2::<i32> {
+                x: pos.x.round() as i32,
+                y: pos.y.round() as i32,
+            },
             radius: 100,
-            color: Color::RGB(255, 255, 255)
-        }
+            color: Color::RGB(255, 255, 255),
+        },
     ]);
 }
 
@@ -485,7 +594,28 @@ fn detect_collisions(world: &World) {
 
 fn draw_sprites(world: &World) {
     world.run(
-        |pos: &mut Position, sprite: &mut Sprite, mut depth_buffer: ResMut<DepthBuffer>| {
+        |pos: &mut Position,
+         sprite: &mut Sprite,
+         mut depth_buffer: ResMut<DepthBuffer>,
+         _: With<Floor>| {
+            depth_buffer.push(DrawCmd {
+                texture_id: sprite.texture_ids[0],
+                pos: Vec3::<i32> {
+                    x: pos.x.floor() as i32,
+                    y: pos.y.floor() as i32,
+                    z: -100,
+                },
+                w: 64,
+                h: 64,
+            });
+        },
+    );
+
+    world.run(
+        |pos: &mut Position,
+         sprite: &mut Sprite,
+         mut depth_buffer: ResMut<DepthBuffer>,
+         _: Without<Floor>| {
             sprite.ticks += 1;
             if sprite.ticks >= sprite.swap_at {
                 sprite.texture_index = if sprite.texture_index == sprite.frames - 1 {
