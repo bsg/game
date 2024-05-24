@@ -18,7 +18,7 @@ use sdl2::{
     image::{InitFlag, LoadTexture},
     keyboard::{Keycode, Scancode},
     pixels::Color,
-    rect::Rect,
+    rect::{Point, Rect},
     render::{Canvas, RenderTarget, Texture, TextureCreator},
     video::{Window, WindowContext},
 };
@@ -58,16 +58,20 @@ impl TextureRepository {
     }
 
     pub fn get(&self, id: TextureID) -> &Texture {
-        self.textures.get(*id).unwrap()
+        match self.textures.get(*id) {
+            Some(tex) => tex,
+            None => panic!("no texture with id {}", *id),
+        }
     }
 }
 
+// TODO dunno what to call this
 struct DrawCmd {
-    // TODO dunno what to call this
     texture_id: TextureID,
     pos: Vec3<i32>,
     w: u32,
     h: u32,
+    flip_horizontal: bool,
 }
 
 impl PartialEq for DrawCmd {
@@ -124,12 +128,21 @@ impl DepthBuffer {
         texture_repo: &TextureRepository,
     ) {
         while !self.buffer.is_empty() {
-            let tex = self.buffer.pop().unwrap();
+            let draw_cmd = self.buffer.pop().unwrap();
             canvas
-                .copy(
-                    texture_repo.get(tex.texture_id),
+                .copy_ex(
+                    texture_repo.get(draw_cmd.texture_id),
                     None,
-                    Some(Rect::new(tex.pos.x, tex.pos.y, tex.w as u32, tex.h as u32)),
+                    Some(Rect::new(
+                        draw_cmd.pos.x,
+                        draw_cmd.pos.y,
+                        draw_cmd.w as u32,
+                        draw_cmd.h as u32,
+                    )),
+                    0.0,
+                    Point::new((draw_cmd.w / 2) as i32, (draw_cmd.h / 2) as i32),
+                    draw_cmd.flip_horizontal,
+                    false,
                 )
                 .unwrap();
         }
@@ -169,7 +182,7 @@ pub struct Ctx {
     lightmap: Lightmap,
     despawn_queue: RwLock<Vec<Entity>>,
 
-    player_textures: [TextureID; 3],
+    player_textures: [TextureID; 4],
     enemy_textures: [TextureID; 2],
     bullet_textures: [TextureID; 2],
     floor_texture: TextureID,
@@ -227,18 +240,10 @@ pub fn main() {
     font.set_style(sdl2::ttf::FontStyle::NORMAL);
 
     let player_textures = [
-        textures.load_texture(
-            &texture_creator,
-            "assets/textures/guy_front_0.png".to_owned(),
-        ),
-        textures.load_texture(
-            &texture_creator,
-            "assets/textures/guy_front_1.png".to_owned(),
-        ),
-        textures.load_texture(
-            &texture_creator,
-            "assets/textures/guy_front_2.png".to_owned(),
-        ),
+        textures.load_texture(&texture_creator, "assets/textures/player_0.png".to_owned()),
+        textures.load_texture(&texture_creator, "assets/textures/player_1.png".to_owned()),
+        textures.load_texture(&texture_creator, "assets/textures/player_2.png".to_owned()),
+        textures.load_texture(&texture_creator, "assets/textures/player_3.png".to_owned()),
     ];
 
     let enemy_textures = [
@@ -288,13 +293,13 @@ pub fn main() {
         // player_pos: Vec2F::new(0.0, 0.0),
         player_speed: 2.0,
         enemy_speed: 1.2,
-        bullet_speed: 8.0,
+        bullet_speed: 4.0,
         enemy_spawn_cooldown: 100,
         enemy_spawn_in: 0,
         debug_draw_colliders: false,
         debug_draw_hitboxes: false,
         bullet_lifetime: 60,
-        player_fire_cooldown: 10,
+        player_fire_cooldown: 20,
 
         frame_time_avg: 0,
         update_time_avg: 0,
@@ -404,7 +409,7 @@ pub fn main() {
 
         ctx.canvas
             .with_texture_canvas(&mut ctx.lightmap.texture, |canvas| {
-                canvas.set_draw_color(Color::RGBA(0, 0, 0, 180));
+                canvas.set_draw_color(Color::RGBA(0, 0, 0, 200));
                 canvas.clear();
                 canvas.set_blend_mode(sdl2::render::BlendMode::Add);
                 world.run(|light: &Light| {

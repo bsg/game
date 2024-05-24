@@ -1,6 +1,6 @@
 use std::ops::{Deref, DerefMut};
 
-use ecs::{Component, Entity, Res, ResMut, With, Without, World};
+use ecs::{entity, Component, Entity, Res, ResMut, With, Without, World};
 use rand::Rng;
 use sdl2::{pixels::Color, rect::Rect};
 
@@ -27,20 +27,34 @@ impl DerefMut for Position {
 }
 
 #[derive(Component)]
-struct Sprite {
-    texture_ids: [TextureID; 4],
+struct AnimatedSprite {
+    textures: Vec<TextureID>,
     texture_index: u32,
     width: u32,
     height: u32,
-    frames: u32,
     ticks: u32,
-    swap_at: u32,
+    ticks_per_frame: u32,
+    flip_horizontal: bool,
 }
 
-impl Sprite {
+impl AnimatedSprite {
+    pub fn new(width: u32, height: u32, ticks_per_frame: u32, textures: Vec<TextureID>) -> Self {
+        AnimatedSprite {
+            textures,
+            texture_index: 0,
+            width,
+            height,
+            ticks: 0,
+            ticks_per_frame,
+            flip_horizontal: false,
+        }
+    }
+}
+
+impl AnimatedSprite {
     pub fn draw(&self, depth_buffer: &mut DepthBuffer, x: i32, y: i32) {
         depth_buffer.push(DrawCmd {
-            texture_id: self.texture_ids[self.texture_index as usize],
+            texture_id: self.textures[self.texture_index as usize],
             pos: Vec3::new(
                 x - (self.width / 2) as i32,
                 y - (self.height / 2) as i32,
@@ -48,6 +62,7 @@ impl Sprite {
             ),
             w: self.width,
             h: self.height,
+            flip_horizontal: self.flip_horizontal,
         });
     }
 }
@@ -140,46 +155,28 @@ pub fn init(world: &World) {
     spawn_player(world, Vec2::new(400.0, 400.0));
 
     let floor_texture = world.get_resource::<Ctx>().unwrap().floor_texture;
-    let floor_sprite = Sprite {
-        texture_ids: [floor_texture, floor_texture, floor_texture, floor_texture],
-        texture_index: 0,
-        width: 64,
-        height: 64,
-        frames: 1,
-        ticks: 0,
-        swap_at: 0,
-    };
 
     for tile_x in 0..32 {
         for tile_y in 0..32 {
-            world.spawn(&[
-                &Floor {},
-                &Position(Vec2::new(tile_x as f32 * 64.0, tile_y as f32 * 64.0)),
-                &floor_sprite,
-            ]);
+            world.spawn(entity!(
+                Floor {},
+                Position(Vec2::new(tile_x as f32 * 64.0, tile_y as f32 * 64.0)),
+                AnimatedSprite::new(64, 64, 0, vec![floor_texture])
+            ));
         }
     }
 
     let wall_texture = world.get_resource::<Ctx>().unwrap().wall_texture;
-    let wall_sprite = Sprite {
-        texture_ids: [wall_texture, wall_texture, wall_texture, wall_texture],
-        texture_index: 0,
-        width: 64,
-        height: 64,
-        frames: 1,
-        ticks: 0,
-        swap_at: 0,
-    };
 
     for tile_x in 0..32 {
         let x = tile_x as f32 * 64.0 - 32.0;
         let y = 32.0;
-        world.spawn(&[
-            &Wall {},
-            &Position(Vec2::new(x, y)),
-            &wall_sprite,
-            &Collider {
-                channels: CH_NAV,
+        world.spawn(entity!(
+            Wall {},
+            Position(Vec2::new(x, y)),
+            AnimatedSprite::new(64, 64, 0, vec![wall_texture]),
+            Collider {
+                channels: CH_NAV | CH_PROJECTILE,
                 x_offset: -32,
                 y_offset: -32,
                 bounds: Rect::new(x.floor() as i32, y.floor() as i32, 64, 64),
@@ -189,16 +186,16 @@ pub fn init(world: &World) {
                 top: false,
                 bottom: false,
                 on_collide: None,
-            },
-        ]);
+            }
+        ));
 
         if tile_x != 7 && tile_x != 8 {
-            world.spawn(&[
-                &Wall {},
-                &Position(Vec2::new(tile_x as f32 * 64.0 - 32.0, 800.0 - 256.0)),
-                &wall_sprite,
-                &Collider {
-                    channels: CH_NAV,
+            world.spawn(entity!(
+                Wall {},
+                Position(Vec2::new(tile_x as f32 * 64.0 - 32.0, 800.0 - 256.0)),
+                AnimatedSprite::new(64, 64, 0, vec![wall_texture]),
+                Collider {
+                    channels: CH_NAV | CH_PROJECTILE,
                     x_offset: -32,
                     y_offset: 0,
                     bounds: Rect::new(x.floor() as i32, 800 - 32, 64, 32),
@@ -208,36 +205,31 @@ pub fn init(world: &World) {
                     top: false,
                     bottom: false,
                     on_collide: None,
-                },
-            ]);
+                }
+            ));
         }
+    }
+    let torch_textures = world.get_resource::<Ctx>().unwrap().torch_textures;
 
-        let torch_textures = world.get_resource::<Ctx>().unwrap().torch_textures;
-        let torch_sprite = Sprite {
-            texture_ids: [
+    world.spawn(entity!(
+        Position(Vec2::new(350.0, 570.0)),
+        AnimatedSprite::new(
+            64,
+            64,
+            5,
+            vec![
                 torch_textures[0],
                 torch_textures[1],
                 torch_textures[0],
                 torch_textures[2],
-            ],
-            texture_index: 0,
-            width: 64,
-            height: 64,
-            frames: 4,
-            ticks: 0,
-            swap_at: 5,
-        };
-
-        world.spawn(&[
-            &Position(Vec2::new(350.0, 570.0)),
-            &torch_sprite,
-            &Light {
-                pos: Vec2::new(350, 570),
-                radius: 100,
-                color: Color::RGB(255, 255, 200),
-            },
-        ]);
-    }
+            ]
+        ),
+        Light {
+            pos: Vec2::new(350, 570),
+            radius: 100,
+            color: Color::RGB(255, 255, 200),
+        }
+    ));
 }
 
 pub fn update(world: &World) {
@@ -302,70 +294,72 @@ pub fn render(world: &World) {
 fn spawn_player(world: &World, pos: Vec2<f32>) {
     let ctx = world.get_resource::<Ctx>().unwrap();
 
-    let collider = Collider::new(-20, 40, 40, 24, CH_NAV);
+    let collider = Collider::new(-14, 20, 28, 14, CH_NAV);
 
-    world.spawn(&[
-        &Player {
+    world.spawn(entity!(
+        Player {
             fire_cooldown: ctx.player_fire_cooldown,
             can_fire_in: 0,
         },
-        &Position(Vec2::new(pos.x, pos.y)),
-        &Sprite {
-            texture_ids: [
-                ctx.player_textures[0],
-                ctx.player_textures[1],
+        Position(Vec2::new(pos.x, pos.y)),
+        AnimatedSprite::new(
+            32,
+            64,
+            15,
+            vec![
                 ctx.player_textures[0],
                 ctx.player_textures[2],
-            ],
-            texture_index: 0,
-            width: 64,
-            height: 128,
-            frames: 4,
-            ticks: 0,
-            swap_at: 20,
-        },
-        &collider,
-        &Light {
+                ctx.player_textures[0],
+                ctx.player_textures[3],
+            ]
+        ),
+        collider,
+        Light {
             pos: Vec2::<i32> {
                 x: pos.x.round() as i32,
                 y: pos.y.round() as i32,
             },
             radius: 100,
             color: Color::RGB(255, 255, 255),
-        },
-    ]);
+        }
+    ));
 }
 
 fn spawn_enemy(world: &World, pos: Vec2<f32>) {
     let ctx = world.get_resource::<Ctx>().unwrap();
 
-    world.spawn(&[
-        &Enemy {},
-        &Position(Vec2::new(pos.x, pos.y)),
-        &Sprite {
-            texture_ids: [
-                ctx.enemy_textures[0],
-                ctx.enemy_textures[1],
-                ctx.enemy_textures[0],
-                ctx.enemy_textures[1],
-            ],
-            texture_index: 0,
-            width: 64,
-            height: 64,
-            frames: 2,
-            ticks: rand::thread_rng().gen_range(0..30),
-            swap_at: 30,
-        },
-        &Collider::new(-25, 10, 50, 24, CH_NAV),
-        &Hitbox(Collider::new(-22, -15, 44, 44, CH_PROJECTILE)),
-    ]);
+    let mut hitbox = Hitbox(Collider::new(-16, -16, 32, 32, CH_PROJECTILE));
+    hitbox.on_collide = Some(&|world: &World, me: Entity, other: Entity| {
+        if let Some(_) = world.get_component::<Projectile>(other) {
+            let mut despawn_queue = world
+                .get_resource::<Ctx>()
+                .unwrap()
+                .despawn_queue
+                .write()
+                .unwrap();
+            despawn_queue.push(me);
+        }
+    });
+
+    world.spawn(entity!(
+        Enemy {},
+        Position(Vec2::new(pos.x, pos.y)),
+        AnimatedSprite::new(
+            32,
+            32,
+            30,
+            vec![ctx.enemy_textures[0], ctx.enemy_textures[1]]
+        ),
+        Collider::new(-10, 6, 22, 10, CH_NAV),
+        hitbox
+    ));
 }
 
 fn spawn_bullet(world: &World, pos: Vec2<f32>, velocity_normal: Vec2<f32>) {
     let ctx = world.get_resource::<Ctx>().unwrap();
 
     let mut collider = Collider::new(-6, -6, 12, 12, CH_PROJECTILE);
-    collider.on_collide = Some(&|world: &World, me: Entity, other: Entity| {
+    collider.on_collide = Some(&|world: &World, me: Entity, _: Entity| {
         let mut despawn_queue = world
             .get_resource::<Ctx>()
             .unwrap()
@@ -373,38 +367,34 @@ fn spawn_bullet(world: &World, pos: Vec2<f32>, velocity_normal: Vec2<f32>) {
             .write()
             .unwrap();
         despawn_queue.push(me);
-        despawn_queue.push(other);
     });
 
-    world.spawn(&[
-        &Projectile {
+    world.spawn(entity!(
+        Projectile {
             velocity: velocity_normal.scaled(ctx.bullet_speed),
             ticks_left: ctx.bullet_lifetime,
         },
-        &Position(Vec2::new(pos.x, pos.y)),
-        &Sprite {
-            texture_ids: [
-                ctx.bullet_textures[0],
-                ctx.bullet_textures[1],
-                ctx.bullet_textures[0],
-                ctx.bullet_textures[1],
-            ],
-            texture_index: 0,
-            width: 16,
-            height: 16,
-            frames: 2,
-            ticks: rand::thread_rng().gen_range(0..30),
-            swap_at: 30,
-        },
-        &collider,
-    ]);
+        Position(Vec2::new(pos.x, pos.y)),
+        AnimatedSprite::new(
+            16,
+            16,
+            30,
+            vec![ctx.bullet_textures[0], ctx.bullet_textures[1]]
+        ),
+        collider,
+        Light {
+            pos: Vec2::new(pos.x as i32, pos.y as i32),
+            radius: 20,
+            color: Color::RGB(160, 150, 10),
+        }
+    ));
 }
 
 fn update_player(world: &World) {
     let ctx = world.get_resource::<Ctx>().unwrap();
 
     world.run(
-        |player: &mut Player, pos: &mut Position, collider: &Collider| {
+        |player: &mut Player, pos: &mut Position, collider: &Collider, sprite: &mut AnimatedSprite| {
             if ctx.input.up && !collider.top {
                 pos.y -= ctx.player_speed;
             }
@@ -413,9 +403,11 @@ fn update_player(world: &World) {
             }
             if ctx.input.left && !collider.left {
                 pos.x -= ctx.player_speed;
+                sprite.flip_horizontal = false;
             }
             if ctx.input.right && !collider.right {
                 pos.x += ctx.player_speed;
+                sprite.flip_horizontal = true;
             }
 
             if player.can_fire_in > 0 {
@@ -455,11 +447,17 @@ fn update_enemies(world: &World) {
     });
 
     world.run(
-        |_: &Enemy, pos: &mut Position, collider: &mut Collider, ctx: Res<Ctx>| {
+        |_: &Enemy, pos: &mut Position, collider: &mut Collider, sprite: &mut AnimatedSprite, ctx: Res<Ctx>| {
             let mut v = Vec2::<f32>::new(player_pos.x - pos.x, player_pos.y - pos.y);
 
             v.normalize();
             v.scale(ctx.enemy_speed);
+
+            if v.x > 0.0 {
+                sprite.flip_horizontal = true;
+            } else if v.x < 0.0 {
+                sprite.flip_horizontal = false;
+            }
 
             if v.x > 0.0 && collider.right {
                 v.x = 0.0;
@@ -538,6 +536,10 @@ fn detect_collisions(world: &World) {
                         on_collide(world, *e1, *e2);
                     }
 
+                    if let Some(on_collide) = c2.on_collide {
+                        on_collide(world, *e2, *e1);
+                    }
+
                     let d_bottom = c2.bounds.bottom() - c1.bounds.top();
                     let d_top = c1.bounds.bottom() - c2.bounds.top();
                     let d_left = c1.bounds.right() - c2.bounds.left();
@@ -568,6 +570,10 @@ fn detect_collisions(world: &World) {
                 if c1.bounds.has_intersection(c2.bounds) {
                     c1.is_colliding = true;
 
+                    if let Some(on_collide) = c1.on_collide {
+                        on_collide(world, *e1, *e2);
+                    }
+
                     if let Some(on_collide) = c2.on_collide {
                         on_collide(world, *e2, *e1);
                     }
@@ -595,11 +601,11 @@ fn detect_collisions(world: &World) {
 fn draw_sprites(world: &World) {
     world.run(
         |pos: &mut Position,
-         sprite: &mut Sprite,
+         sprite: &mut AnimatedSprite,
          mut depth_buffer: ResMut<DepthBuffer>,
          _: With<Floor>| {
             depth_buffer.push(DrawCmd {
-                texture_id: sprite.texture_ids[0],
+                texture_id: sprite.textures[0],
                 pos: Vec3::<i32> {
                     x: pos.x.floor() as i32,
                     y: pos.y.floor() as i32,
@@ -607,18 +613,19 @@ fn draw_sprites(world: &World) {
                 },
                 w: 64,
                 h: 64,
+                flip_horizontal: false,
             });
         },
     );
 
     world.run(
         |pos: &mut Position,
-         sprite: &mut Sprite,
+         sprite: &mut AnimatedSprite,
          mut depth_buffer: ResMut<DepthBuffer>,
          _: Without<Floor>| {
             sprite.ticks += 1;
-            if sprite.ticks >= sprite.swap_at {
-                sprite.texture_index = if sprite.texture_index == sprite.frames - 1 {
+            if sprite.ticks >= sprite.ticks_per_frame {
+                sprite.texture_index = if sprite.texture_index == sprite.textures.len() as u32 - 1 {
                     0
                 } else {
                     sprite.texture_index + 1
