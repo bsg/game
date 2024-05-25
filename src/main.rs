@@ -23,7 +23,7 @@ use sdl2::{
     video::{Window, WindowContext},
 };
 
-use crate::game::Light;
+use crate::game::{Light, Position};
 
 #[derive(Clone, Copy)]
 struct TextureID(usize);
@@ -159,6 +159,7 @@ pub struct Input {
     pub fire_down: bool,
     pub fire_left: bool,
     pub fire_right: bool,
+    pub interact: bool,
 }
 
 pub struct Lightmap {
@@ -188,6 +189,9 @@ pub struct Ctx {
     floor_texture: TextureID,
     wall_texture: TextureID,
     torch_textures: [TextureID; 3],
+    lever_texture: TextureID,
+    spawner_texture: TextureID,
+    exclamation_mark_texture: TextureID,
     textures: TextureRepository,
     canvas: Canvas<Window>,
     input: Input,
@@ -197,14 +201,13 @@ pub struct Ctx {
     bullet_speed: f32,
     bullet_lifetime: usize,
     player_fire_cooldown: usize,
-    enemy_spawn_cooldown: usize,
-    enemy_spawn_in: usize,
+    spawner: Option<Entity>,
 
     // Debug
     frame_time_avg: u128,
     update_time_avg: u128,
     render_time_avg: u128,
-    debug_draw_colliders: bool,
+    debug_draw_nav_colliders: bool,
     debug_draw_hitboxes: bool,
 }
 
@@ -267,16 +270,27 @@ pub fn main() {
         textures.load_texture(&texture_creator, "assets/textures/torch_2.png".to_owned()),
     ];
 
+    let lever_texture =
+        textures.load_texture(&texture_creator, "assets/textures/lever.png".to_owned());
+    let spawner_texture =
+        textures.load_texture(&texture_creator, "assets/textures/spawner.png".to_owned());
+    let exclamation_mark_texture = textures.load_texture(
+        &texture_creator,
+        "assets/textures/exclamation_mark.png".to_owned(),
+    );
+
     let ctx = Ctx {
         despawn_queue: RwLock::new(Vec::new()),
         lightmap: Lightmap::new(&canvas, 800, 800),
-
         player_textures,
         enemy_textures,
         bullet_textures,
         floor_texture,
         wall_texture,
         torch_textures,
+        lever_texture,
+        spawner_texture,
+        exclamation_mark_texture,
         textures,
         canvas,
         input: Input {
@@ -289,17 +303,17 @@ pub fn main() {
             fire_down: false,
             fire_left: false,
             fire_right: false,
+            interact: false,
         },
         // player_pos: Vec2F::new(0.0, 0.0),
         player_speed: 2.0,
         enemy_speed: 1.2,
         bullet_speed: 4.0,
-        enemy_spawn_cooldown: 100,
-        enemy_spawn_in: 0,
-        debug_draw_colliders: false,
+        debug_draw_nav_colliders: false,
         debug_draw_hitboxes: false,
         bullet_lifetime: 60,
         player_fire_cooldown: 20,
+        spawner: None,
 
         frame_time_avg: 0,
         update_time_avg: 0,
@@ -324,7 +338,7 @@ pub fn main() {
                 Event::KeyDown {
                     keycode: Some(Keycode::F1),
                     ..
-                } => ctx.debug_draw_colliders = !ctx.debug_draw_colliders,
+                } => ctx.debug_draw_nav_colliders = !ctx.debug_draw_nav_colliders,
                 Event::KeyDown {
                     keycode: Some(Keycode::F2),
                     ..
@@ -398,6 +412,14 @@ pub fn main() {
             .is_scancode_pressed(Scancode::LShift)
         {
             ctx.input.shift = true;
+        } else {
+            ctx.input.shift = false;
+        }
+
+        if event_pump.keyboard_state().is_scancode_pressed(Scancode::E) {
+            ctx.input.interact = true;
+        } else {
+            ctx.input.interact = false;
         }
 
         let update_start = Instant::now();
@@ -411,21 +433,20 @@ pub fn main() {
             .with_texture_canvas(&mut ctx.lightmap.texture, |canvas| {
                 canvas.set_draw_color(Color::RGBA(0, 0, 0, 200));
                 canvas.clear();
-                canvas.set_blend_mode(sdl2::render::BlendMode::Add);
-                world.run(|light: &Light| {
+                world.run(|light: &Light, pos: &Position| {
                     let mut color = light.color.clone();
                     color.a = 255;
                     canvas
                         .filled_circle(
-                            light.pos.x as i16,
-                            light.pos.y as i16,
+                            pos.x as i16,
+                            pos.y as i16,
                             (light.radius as f32 * 0.7) as i16,
                             color,
                         )
                         .unwrap();
                     color.a = 127;
                     canvas
-                        .filled_circle(light.pos.x as i16, light.pos.y as i16, light.radius, color)
+                        .filled_circle(pos.x as i16, pos.y as i16, light.radius, color)
                         .unwrap();
                 });
             })
