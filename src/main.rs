@@ -128,8 +128,7 @@ impl DepthBuffer {
         canvas: &mut Canvas<T>,
         texture_repo: &TextureRepository,
     ) {
-        while !self.buffer.is_empty() {
-            let draw_cmd = self.buffer.pop().unwrap();
+        while let Some(draw_cmd) = self.buffer.pop() {
             canvas
                 .copy_ex(
                     texture_repo.get(draw_cmd.texture_id),

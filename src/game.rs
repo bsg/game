@@ -25,8 +25,8 @@ fn tile_to_pos(x: i32, y: i32) -> Pos {
 }
 
 pub fn init(world: &World) {
-    for x in 0..128 {
-        for y in 0..128 {
+    for x in 0..32 {
+        for y in 0..32 {
             spawn_floor(world, tile_to_pos(x, y));
         }
     }
