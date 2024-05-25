@@ -180,9 +180,9 @@ impl Lightmap {
 
 #[derive(Resource)]
 pub struct Ctx {
+    canvas: Canvas<Window>,
     lightmap: Lightmap,
     despawn_queue: RwLock<Vec<Entity>>,
-
     player_textures: [TextureID; 4],
     enemy_textures: [TextureID; 2],
     bullet_textures: [TextureID; 2],
@@ -193,17 +193,12 @@ pub struct Ctx {
     spawner_texture: TextureID,
     exclamation_mark_texture: TextureID,
     textures: TextureRepository,
-    canvas: Canvas<Window>,
     input: Input,
-    // player_pos: Vec2F,
     player_speed: f32,
     enemy_speed: f32,
     bullet_speed: f32,
     bullet_lifetime: usize,
     player_fire_cooldown: usize,
-    spawner: Option<Entity>,
-
-    // Debug
     frame_time_avg: u128,
     update_time_avg: u128,
     render_time_avg: u128,
@@ -305,7 +300,6 @@ pub fn main() {
             fire_right: false,
             interact: false,
         },
-        // player_pos: Vec2F::new(0.0, 0.0),
         player_speed: 2.0,
         enemy_speed: 1.2,
         bullet_speed: 4.0,
@@ -313,8 +307,6 @@ pub fn main() {
         debug_draw_hitboxes: false,
         bullet_lifetime: 60,
         player_fire_cooldown: 20,
-        spawner: None,
-
         frame_time_avg: 0,
         update_time_avg: 0,
         render_time_avg: 0,

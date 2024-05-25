@@ -1,4 +1,5 @@
 // BUG environment capture by closures assigned to a component member is broken
+// boxed closures are fine (see Interactable). is this ecs related?
 
 use std::ops::{Deref, DerefMut};
 
@@ -180,9 +181,9 @@ struct Wall {}
 struct Prop {}
 
 #[derive(Component)]
-struct Interactable<'a> {
+struct Interactable {
     cooldown: usize, // TODO won't need once we have just_pressed
-    on_interact: &'a dyn Fn(&World, Entity),
+    on_interact: Box<dyn Fn(&World, Entity)>,
     ticks_left: usize,
 }
 
@@ -273,7 +274,7 @@ pub fn init(world: &World) {
         }
     ));
 
-    ctx.spawner = Some(world.spawn(entity!(
+    let spawner_entity = world.spawn(entity!(
         Prop {},
         Position(Vec2::new(500.0, 400.0)),
         AnimatedSprite::new(32, 32, 0, vec![vec![ctx.spawner_texture]], None),
@@ -286,26 +287,25 @@ pub fn init(world: &World) {
             radius: 0,
             color: Color::RGB(150, 255, 150)
         }
-    )));
+    ));
 
     world.spawn(entity!(
         Position(Vec2::new(200.0, 200.0)),
         AnimatedSprite::new(32, 32, 0, vec![vec![ctx.lever_texture]], None),
         Interactable {
             cooldown: 15,
-            on_interact: &|world: &World, me: Entity| {
+            on_interact: Box::new(move |world: &World, me: Entity| {
                 let sprite = world.get_component_mut::<AnimatedSprite>(me).unwrap();
                 sprite.flip_horizontal = !sprite.flip_horizontal;
-                let ctx = world.get_resource_mut::<Ctx>().unwrap();
                 let spawner = world
-                    .get_component_mut::<Spawner>(ctx.spawner.unwrap())
+                    .get_component_mut::<Spawner>(spawner_entity)
                     .unwrap();
                 spawner.is_active = !spawner.is_active;
                 world
-                    .get_component_mut::<Light>(ctx.spawner.unwrap())
+                    .get_component_mut::<Light>(spawner_entity)
                     .unwrap()
                     .radius = if spawner.is_active { 60 } else { 0 };
-            },
+            }),
             ticks_left: 0
         }
     ));
