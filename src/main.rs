@@ -1,5 +1,6 @@
 extern crate sdl2;
 
+mod components;
 mod game;
 mod math;
 
@@ -23,12 +24,12 @@ use sdl2::{
     video::{Window, WindowContext},
 };
 
-use crate::game::{Light, Position};
+use crate::components::{Light, Position};
 
 #[derive(Clone, Copy)]
-struct TextureID(usize);
+pub struct TextureId(usize);
 
-impl Deref for TextureID {
+impl Deref for TextureId {
     type Target = usize;
 
     fn deref(&self) -> &Self::Target {
@@ -51,13 +52,13 @@ impl TextureRepository {
         &mut self,
         texture_creator: &TextureCreator<WindowContext>,
         path: String,
-    ) -> TextureID {
+    ) -> TextureId {
         let texture = texture_creator.load_texture(&path).unwrap();
         self.textures.push(texture);
-        TextureID(self.textures.len() - 1)
+        TextureId(self.textures.len() - 1)
     }
 
-    pub fn get(&self, id: TextureID) -> &Texture {
+    pub fn get(&self, id: TextureId) -> &Texture {
         match self.textures.get(*id) {
             Some(tex) => tex,
             None => panic!("no texture with id {}", *id),
@@ -67,7 +68,7 @@ impl TextureRepository {
 
 // TODO dunno what to call this
 struct DrawCmd {
-    texture_id: TextureID,
+    texture_id: TextureId,
     pos: Vec3<i32>,
     w: u32,
     h: u32,
@@ -183,15 +184,15 @@ pub struct Ctx {
     canvas: Canvas<Window>,
     lightmap: Lightmap,
     despawn_queue: RwLock<Vec<Entity>>,
-    player_textures: [TextureID; 4],
-    enemy_textures: [TextureID; 2],
-    bullet_textures: [TextureID; 2],
-    floor_texture: TextureID,
-    wall_texture: TextureID,
-    torch_textures: [TextureID; 3],
-    lever_texture: TextureID,
-    spawner_texture: TextureID,
-    exclamation_mark_texture: TextureID,
+    player_textures: [TextureId; 4],
+    enemy_textures: [TextureId; 2],
+    bullet_textures: [TextureId; 2],
+    floor_texture: TextureId,
+    wall_texture: TextureId,
+    torch_textures: [TextureId; 3],
+    lever_texture: TextureId,
+    spawner_texture: TextureId,
+    exclamation_mark_texture: TextureId,
     textures: TextureRepository,
     input: Input,
     player_speed: f32,
@@ -423,7 +424,7 @@ pub fn main() {
 
         ctx.canvas
             .with_texture_canvas(&mut ctx.lightmap.texture, |canvas| {
-                canvas.set_draw_color(Color::RGBA(0, 0, 0, 200));
+                canvas.set_draw_color(Color::RGBA(0, 0, 0, 180));
                 canvas.clear();
                 world.run(|light: &Light, pos: &Position| {
                     let mut color = light.color.clone();
