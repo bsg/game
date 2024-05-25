@@ -3,46 +3,49 @@
 
 use ecs::{entity, Entity, Res, ResMut, With, Without, World};
 use rand::{thread_rng, Rng};
-use sdl2::pixels::Color;
+use sdl2::{pixels::Color, rect::Rect};
 
 use crate::{
     components::{
-        AnimatedSprite, Collider, ColliderGroup, Enemy, Floor, Interactable, Light, Player, Position, Projectile, Prop, Spawner, Wall, CH_NAV, CH_NONE, CH_PROJECTILE
+        AnimatedSprite, Collider, ColliderGroup, Enemy, Floor, Interactable, Light, Player, Pos,
+        Projectile, Prop, Spawner, Wall, CH_NAV, CH_NONE, CH_PROJECTILE,
     },
     math::{Vec2, Vec3},
     Ctx, DepthBuffer, DrawCmd,
 };
 
+const TILE_SIZE: f32 = 64.0;
+
+#[inline(always)]
+fn tile_to_pos(x: i32, y: i32) -> Pos {
+    Pos::new(
+        x as f32 * TILE_SIZE + (TILE_SIZE / 2.),
+        y as f32 * TILE_SIZE + (TILE_SIZE / 2.),
+    )
+}
+
 pub fn init(world: &World) {
-    for tile_x in 0..32 {
-        for tile_y in 0..32 {
-            spawn_floor(
-                world,
-                Position::new(tile_x as f32 * 64.0, tile_y as f32 * 64.0),
-            );
+    for x in 0..128 {
+        for y in 0..128 {
+            spawn_floor(world, tile_to_pos(x, y));
         }
     }
 
-    for tile_x in 0..32 {
-        let x = tile_x as f32 * 64.0 - 32.0;
-        let y = 32.0;
-        spawn_wall(world, Position::new(x, y));
+    for x in 0..32 {
+        spawn_wall(world, tile_to_pos(x, 0));
 
-        if tile_x != 7 && tile_x != 8 {
-            spawn_wall(
-                world,
-                Position::new(tile_x as f32 * 64.0 - 32.0, 800.0 - 256.0),
-            );
+        if x != 7 && x != 8 {
+            spawn_wall(world, tile_to_pos(x, 8));
         }
     }
 
-    spawn_torch(world, Position::new(350.0, 570.0));
-    spawn_torch(world, Position::new(600.0, 200.0));
+    spawn_torch(world, Pos::new(350.0, 570.0));
+    spawn_torch(world, Pos::new(600.0, 200.0));
 
-    let spawner_entity = spawn_spawner(world, Position::new(540.0, 640.0));
+    let spawner_entity = spawn_spawner(world, Pos::new(540.0, 640.0));
     spawn_lever(
         world,
-        Position::new(200.0, 200.0),
+        Pos::new(200.0, 200.0),
         move |world: &World, me: Entity| {
             let sprite = world.get_component_mut::<AnimatedSprite>(me).unwrap();
             sprite.flip_horizontal = !sprite.flip_horizontal;
@@ -94,7 +97,7 @@ fn spawn_player(world: &World, pos: Vec2<f32>) {
             fire_cooldown: ctx.player_fire_cooldown,
             can_fire_in: 0,
         },
-        Position::new(pos.x, pos.y),
+        Pos::new(pos.x, pos.y),
         AnimatedSprite::new(
             32,
             64,
@@ -120,7 +123,7 @@ fn spawn_player(world: &World, pos: Vec2<f32>) {
 // ███████║   ██║   ███████║   ██║   ███████╗██║ ╚═╝ ██║███████║
 // ╚══════╝   ╚═╝   ╚══════╝   ╚═╝   ╚══════╝╚═╝     ╚═╝╚══════╝
 
-fn spawn_lever(world: &World, pos: Position, on_interact: impl Fn(&World, Entity) + 'static) {
+fn spawn_lever(world: &World, pos: Pos, on_interact: impl Fn(&World, Entity) + 'static) {
     let tex = world.get_resource::<Ctx>().unwrap().lever_texture;
     world.spawn(entity!(
         pos,
@@ -133,7 +136,7 @@ fn spawn_lever(world: &World, pos: Position, on_interact: impl Fn(&World, Entity
     ));
 }
 
-fn spawn_spawner(world: &World, pos: Position) -> Entity {
+fn spawn_spawner(world: &World, pos: Pos) -> Entity {
     let tex = world.get_resource::<Ctx>().unwrap().spawner_texture;
     world.spawn(entity!(
         Prop {},
@@ -153,21 +156,21 @@ fn spawn_spawner(world: &World, pos: Position) -> Entity {
     ))
 }
 
-fn spawn_floor(world: &World, pos: Position) -> Entity {
+fn spawn_floor(world: &World, pos: Pos) -> Entity {
     let tex = world.get_resource::<Ctx>().unwrap().floor_texture;
     world.spawn(entity!(
         Floor {},
         pos,
-        AnimatedSprite::new(64, 64, 0, vec![vec![tex]], None)
+        AnimatedSprite::new(TILE_SIZE as u32, TILE_SIZE as u32, 0, vec![vec![tex]], None)
     ))
 }
 
-fn spawn_wall(world: &World, pos: Position) -> Entity {
+fn spawn_wall(world: &World, pos: Pos) -> Entity {
     let tex = world.get_resource::<Ctx>().unwrap().wall_texture;
     world.spawn(entity!(
         Wall {},
         pos,
-        AnimatedSprite::new(64, 64, 0, vec![vec![tex]], None),
+        AnimatedSprite::new(TILE_SIZE as u32, TILE_SIZE as u32, 0, vec![vec![tex]], None),
         ColliderGroup {
             nav: Some(Collider::new(
                 -32,
@@ -183,7 +186,7 @@ fn spawn_wall(world: &World, pos: Position) -> Entity {
     ))
 }
 
-fn spawn_torch(world: &World, pos: Position) {
+fn spawn_torch(world: &World, pos: Pos) {
     let tex = world.get_resource::<Ctx>().unwrap().torch_textures;
     world.spawn(entity!(
         pos,
@@ -195,13 +198,13 @@ fn spawn_torch(world: &World, pos: Position) {
     ));
 }
 
-fn spawn_enemy(world: &World, pos: Position) {
+fn spawn_enemy(world: &World, pos: Pos) {
     let ctx = world.get_resource::<Ctx>().unwrap();
     let tex = ctx.enemy_textures;
 
     world.spawn(entity!(
         Enemy {},
-        Position::new(pos.x, pos.y),
+        Pos::new(pos.x, pos.y),
         AnimatedSprite::new(32, 32, 30, vec![vec![tex[0], tex[1]]], None),
         ColliderGroup {
             nav: Some(Collider::new(-10, 6, 22, 10, CH_NAV, CH_NAV, None)),
@@ -241,7 +244,7 @@ fn spawn_bullet(world: &World, pos: Vec2<f32>, velocity_normal: Vec2<f32>) {
             velocity: velocity_normal.scaled(ctx.bullet_speed),
             ticks_left: ctx.bullet_lifetime,
         },
-        Position::new(pos.x, pos.y),
+        Pos::new(pos.x, pos.y),
         AnimatedSprite::new(16, 16, 30, vec![vec![tex[0], tex[1]]], None),
         ColliderGroup {
             nav: Some(Collider::new(
@@ -272,11 +275,11 @@ fn spawn_bullet(world: &World, pos: Vec2<f32>, velocity_normal: Vec2<f32>) {
 
 fn update_player(world: &World) {
     let ctx = world.get_resource::<Ctx>().unwrap();
-    let mut player_pos = Position::zero();
+    let mut player_pos = Pos::zero();
 
     world.run(
         |player: &mut Player,
-         pos: &mut Position,
+         pos: &mut Pos,
          colliders: &ColliderGroup,
          sprite: &mut AnimatedSprite| {
             let collider = colliders.nav.as_ref().unwrap();
@@ -338,7 +341,7 @@ fn update_player(world: &World) {
     );
 
     world.run(
-        |entity: &Entity, interactable: &mut Interactable, pos: &Position| {
+        |entity: &Entity, interactable: &mut Interactable, pos: &Pos| {
             if interactable.ticks_left == 0 {
                 if ctx.input.interact && player_pos.distance(pos) < 32.0 {
                     (interactable.on_interact)(world, *entity);
@@ -352,15 +355,15 @@ fn update_player(world: &World) {
 }
 
 fn update_enemies(world: &World) {
-    let mut player_pos = Position::zero();
+    let mut player_pos = Pos::zero();
 
-    world.run(|_: &Player, pos: &Position| {
+    world.run(|_: &Player, pos: &Pos| {
         player_pos = *pos;
     });
 
     world.run(
         |_: &Enemy,
-         pos: &mut Position,
+         pos: &mut Pos,
          colliders: &mut ColliderGroup,
          sprite: &mut AnimatedSprite,
          ctx: Res<Ctx>| {
@@ -400,7 +403,7 @@ fn update_enemies(world: &World) {
 
 fn update_projectiles(world: &World) {
     world.run(
-        |entity: &Entity, projectile: &mut Projectile, pos: &mut Position| {
+        |entity: &Entity, projectile: &mut Projectile, pos: &mut Pos| {
             if projectile.ticks_left == 0 {
                 world
                     .get_resource::<Ctx>()
@@ -419,7 +422,7 @@ fn update_projectiles(world: &World) {
 }
 
 fn update_spawners(world: &World) {
-    world.run(|spawner: &mut Spawner, pos: &Position, ctx: Res<Ctx>| {
+    world.run(|spawner: &mut Spawner, pos: &Pos, ctx: Res<Ctx>| {
         if spawner.is_active {
             if spawner.ticks_left == 0 {
                 spawn_enemy(world, *pos);
@@ -474,7 +477,7 @@ fn update_spawners(world: &World) {
 }
 
 fn fix_colliders(world: &World) {
-    world.run(|colliders: &mut ColliderGroup, pos: &Position| {
+    world.run(|colliders: &mut ColliderGroup, pos: &Pos| {
         if let Some(collider) = colliders.nav.as_mut() {
             collider.set_pos(
                 pos.x.round() as i32 + collider.x_offset,
@@ -559,13 +562,9 @@ fn detect_collisions(world: &World) {
 // ╚═╝  ╚═╝╚══════╝╚═╝  ╚═══╝╚═════╝ ╚══════╝╚═╝  ╚═╝
 
 fn draw_sprites(world: &World) {
-    // TODO impl draw() for direct drawing and additionally get rid of depth in this signature
-    fn push(
-        depth_buffer: &mut DepthBuffer,
-        sprite: &mut AnimatedSprite,
-        pos: &Position,
-        depth: Option<i32>,
-    ) {
+    #[inline(always)]
+    fn update_anim(sprite: &mut AnimatedSprite) {
+        sprite.ticks += 1;
         if sprite.ticks >= sprite.ticks_per_frame {
             sprite.texture_index = if sprite.texture_index
                 == sprite.textures[sprite.state as usize].len() as u32 - 1
@@ -576,57 +575,72 @@ fn draw_sprites(world: &World) {
             };
             sprite.ticks = 0;
         }
+    }
 
+    #[inline(always)]
+    fn draw(ctx: &mut Ctx, sprite: &mut AnimatedSprite, pos: &Pos) {
+        ctx.canvas
+            .copy_ex(
+                ctx.textures
+                    .get(sprite.textures[sprite.state as usize][sprite.texture_index as usize]),
+                None,
+                Some(Rect::new(
+                    pos.x as i32 - (sprite.width / 2) as i32,
+                    pos.y as i32 - (sprite.height / 2) as i32,
+                    sprite.width as u32,
+                    sprite.height as u32,
+                )),
+                0.0,
+                None,
+                sprite.flip_horizontal,
+                false,
+            )
+            .unwrap();
+
+        update_anim(sprite);
+    }
+
+    #[inline(always)]
+    fn push(depth_buffer: &mut DepthBuffer, sprite: &mut AnimatedSprite, pos: &Pos) {
         depth_buffer.push(DrawCmd {
             texture_id: sprite.textures[sprite.state as usize][sprite.texture_index as usize],
             pos: Vec3::<i32> {
                 x: pos.x.round() as i32 - (sprite.width / 2) as i32,
                 y: pos.y.round() as i32 - (sprite.height / 2) as i32,
-                z: if depth.is_some() {
-                    depth.unwrap()
-                } else {
-                    pos.y.round() as i32
-                        + if sprite.z_offset.is_some() {
-                            sprite.z_offset.unwrap() as i32
-                        } else {
-                            0
-                        }
-                },
+                z: pos.y.round() as i32
+                    + if sprite.z_offset.is_some() {
+                        sprite.z_offset.unwrap() as i32
+                    } else {
+                        0
+                    },
             },
             w: sprite.width,
             h: sprite.height,
             flip_horizontal: sprite.flip_horizontal,
         });
-        sprite.ticks += 1;
+
+        update_anim(sprite);
     }
 
-    // TODO this should draw directly instead of drawing to the depth buffer
     world.run(
-        |pos: &mut Position,
-         sprite: &mut AnimatedSprite,
-         mut depth_buffer: ResMut<DepthBuffer>,
-         _: With<Floor>| {
-            push(&mut depth_buffer, sprite, pos, Some(-100));
-        },
-    );
-
-    // TODO this should draw directly instead of drawing to the depth buffer
-    world.run(
-        |pos: &mut Position,
-         sprite: &mut AnimatedSprite,
-         mut depth_buffer: ResMut<DepthBuffer>,
-         _: With<Prop>| {
-            push(&mut depth_buffer, sprite, pos, Some(-99));
+        |pos: &mut Pos, sprite: &mut AnimatedSprite, mut ctx: ResMut<Ctx>, _: With<Floor>| {
+            draw(&mut ctx, sprite, pos);
         },
     );
 
     world.run(
-        |pos: &mut Position,
+        |pos: &mut Pos, sprite: &mut AnimatedSprite, mut ctx: ResMut<Ctx>, _: With<Prop>| {
+            draw(&mut ctx, sprite, pos);
+        },
+    );
+
+    world.run(
+        |pos: &mut Pos,
          sprite: &mut AnimatedSprite,
          mut depth_buffer: ResMut<DepthBuffer>,
          _: Without<Floor>,
          _: Without<Prop>| {
-            push(&mut depth_buffer, sprite, pos, None);
+            push(&mut depth_buffer, sprite, pos);
         },
     );
 

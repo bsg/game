@@ -5,23 +5,23 @@ use ecs::{Component, Entity, World};
 use sdl2::{pixels::Color, rect::Rect};
 
 #[derive(Component, Clone, Copy)]
-pub struct Position(Vec2<f32>);
+pub struct Pos(Vec2<f32>);
 
-impl Position {
+impl Pos {
     pub fn new(x: f32, y: f32) -> Self {
-        Position(Vec2::new(x, y))
+        Pos(Vec2::new(x, y))
     }
 
     pub fn zero() -> Self {
-        Position(Vec2::zero())
+        Pos(Vec2::zero())
     }
 
-    pub fn distance(&self, other: &Position) -> f32 {
+    pub fn distance(&self, other: &Pos) -> f32 {
         f32::sqrt((self.0.x - other.x).powi(2) + (self.0.y - other.y).powi(2))
     }
 }
 
-impl Deref for Position {
+impl Deref for Pos {
     type Target = Vec2<f32>;
 
     fn deref(&self) -> &Self::Target {
@@ -29,7 +29,7 @@ impl Deref for Position {
     }
 }
 
-impl DerefMut for Position {
+impl DerefMut for Pos {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }

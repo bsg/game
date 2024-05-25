@@ -19,12 +19,12 @@ use sdl2::{
     image::{InitFlag, LoadTexture},
     keyboard::{Keycode, Scancode},
     pixels::Color,
-    rect::{Point, Rect},
+    rect::Rect,
     render::{Canvas, RenderTarget, Texture, TextureCreator},
     video::{Window, WindowContext},
 };
 
-use crate::components::{Light, Position};
+use crate::components::{Light, Pos};
 
 #[derive(Clone, Copy)]
 pub struct TextureId(usize);
@@ -141,7 +141,7 @@ impl DepthBuffer {
                         draw_cmd.h as u32,
                     )),
                     0.0,
-                    Point::new((draw_cmd.w / 2) as i32, (draw_cmd.h / 2) as i32),
+                    None,
                     draw_cmd.flip_horizontal,
                     false,
                 )
@@ -182,6 +182,7 @@ impl Lightmap {
 #[derive(Resource)]
 pub struct Ctx {
     canvas: Canvas<Window>,
+    textures: TextureRepository,
     lightmap: Lightmap,
     despawn_queue: RwLock<Vec<Entity>>,
     player_textures: [TextureId; 4],
@@ -193,7 +194,6 @@ pub struct Ctx {
     lever_texture: TextureId,
     spawner_texture: TextureId,
     exclamation_mark_texture: TextureId,
-    textures: TextureRepository,
     input: Input,
     player_speed: f32,
     enemy_speed: f32,
@@ -426,7 +426,7 @@ pub fn main() {
             .with_texture_canvas(&mut ctx.lightmap.texture, |canvas| {
                 canvas.set_draw_color(Color::RGBA(0, 0, 0, 180));
                 canvas.clear();
-                world.run(|light: &Light, pos: &Position| {
+                world.run(|light: &Light, pos: &Pos| {
                     let mut color = light.color.clone();
                     color.a = 255;
                     canvas
