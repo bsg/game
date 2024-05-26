@@ -204,6 +204,8 @@ pub struct Ctx {
     render_time_avg: u128,
     debug_draw_nav_colliders: bool,
     debug_draw_hitboxes: bool,
+
+    spawner_entity: Option<Entity>,
 }
 
 pub fn main() {
@@ -310,6 +312,8 @@ pub fn main() {
         frame_time_avg: 0,
         update_time_avg: 0,
         render_time_avg: 0,
+
+        spawner_entity: None,
     };
 
     world.add_resource(ctx);

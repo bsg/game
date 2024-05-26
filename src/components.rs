@@ -4,7 +4,7 @@ use crate::{math::Vec2, TextureId};
 use ecs::{Component, Entity, World};
 use sdl2::{pixels::Color, rect::Rect};
 
-#[derive(Component, Clone, Copy)]
+#[derive(Component)]
 pub struct Pos(Vec2<f32>);
 
 impl Pos {
@@ -38,7 +38,7 @@ impl DerefMut for Pos {
 #[derive(Component)]
 pub struct AnimatedSprite {
     // TODO u16
-    pub textures: Vec<Vec<TextureId>>,
+    pub textures: [Option<[TextureId; 4]>; 2],
     pub state: u32,
     pub texture_index: u32,
     pub width: u32,
@@ -46,18 +46,24 @@ pub struct AnimatedSprite {
     pub ticks: u32,
     pub ticks_per_frame: u32,
     pub flip_horizontal: bool,
+    pub x_offset: i16,
+    pub y_offset: i16,
     pub z_offset: Option<i16>,
 }
 
 impl AnimatedSprite {
     pub fn new(
+        x_offset: i16,
+        y_offset: i16,
         width: u32,
         height: u32,
         ticks_per_frame: u32,
-        textures: Vec<Vec<TextureId>>,
+        textures: [Option<[TextureId; 4]>; 2],
         z_offset: Option<i16>,
     ) -> Self {
         AnimatedSprite {
+            x_offset,
+            y_offset,
             textures,
             state: 0,
             texture_index: 0,
@@ -83,8 +89,8 @@ pub const CH_NONE: usize = 0;
 pub const CH_NAV: usize = 1;
 pub const CH_PROJECTILE: usize = 1 << 1;
 
-#[derive(Clone)]
-pub struct Collider<'a> {
+#[derive(Clone, Copy)]
+pub struct Collider {
     pub channels: usize,
     pub collides_with: usize,
     pub x_offset: i32,
@@ -95,10 +101,10 @@ pub struct Collider<'a> {
     pub right: bool,
     pub top: bool,
     pub bottom: bool,
-    pub on_collide: Option<&'a dyn Fn(&World, Entity, Entity)>,
+    pub on_collide: Option<fn(&World, Entity, Entity)>,
 }
 
-impl<'a> Collider<'a> {
+impl Collider {
     pub fn new(
         x_offset: i32,
         y_offset: i32,
@@ -106,7 +112,7 @@ impl<'a> Collider<'a> {
         h: u32,
         channels: usize,
         collides_with: usize,
-        on_collide: Option<&'a dyn Fn(&World, Entity, Entity)>,
+        on_collide: Option<fn(&World, Entity, Entity)>,
     ) -> Self {
         Collider {
             channels,
@@ -130,9 +136,9 @@ impl<'a> Collider<'a> {
 }
 
 #[derive(Component)]
-pub struct ColliderGroup<'a> {
-    pub nav: Option<Collider<'a>>,
-    pub hitbox: Option<Collider<'a>>,
+pub struct ColliderGroup {
+    pub nav: Option<Collider>,
+    pub hitbox: Option<Collider>,
 }
 
 #[derive(Component)]
@@ -168,7 +174,7 @@ pub struct Prop {}
 #[derive(Component)]
 pub struct Interactable {
     pub cooldown: usize, // TODO won't need once we have just_pressed
-    pub on_interact: Box<dyn Fn(&World, Entity)>,
+    pub on_interact: fn(&World, Entity),
     pub ticks_left: usize,
 }
 
