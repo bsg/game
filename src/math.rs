@@ -93,14 +93,14 @@ pub struct Vec2<T> {
 #[allow(dead_code)]
 impl<T: Scalar<T>> Vec2<T> {
     pub fn new(x: T, y: T) -> Vec2<T> {
-        return Vec2 { x, y };
+        Vec2 { x, y }
     }
 
     pub fn zero() -> Vec2<T> {
-        return Vec2 {
+        Vec2 {
             x: T::zero(),
             y: T::zero(),
-        };
+        }
     }
 
     pub fn magnitude(&self) -> T {
@@ -132,14 +132,14 @@ pub struct Vec3<T> {
 #[allow(dead_code)]
 impl<T: Scalar<T>> Vec3<T> {
     pub fn new(x: T, y: T, z: T) -> Vec3<T> {
-        return Vec3 { x, y, z };
+        Vec3 { x, y, z }
     }
 
     pub fn zero() -> Vec3<T> {
-        return Vec3 {
+        Vec3 {
             x: T::zero(),
             y: T::zero(),
             z: T::zero(),
-        };
+        }
     }
 }

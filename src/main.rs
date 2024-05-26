@@ -5,7 +5,7 @@ mod game;
 mod math;
 
 use std::{
-    collections::BinaryHeap,
+    collections::{BinaryHeap, HashMap},
     ops::Deref,
     sync::RwLock,
     time::{Duration, Instant},
@@ -41,6 +41,38 @@ struct TextureRepository {
     textures: Vec<Texture>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct AnimationId(usize);
+
+struct AnimationRepository {
+    animations: Vec<Vec<TextureId>>,
+    lookup: HashMap<&'static str, AnimationId>,
+}
+
+impl AnimationRepository {
+    pub fn new() -> Self {
+        AnimationRepository {
+            animations: vec![vec![]],
+            lookup: HashMap::new(),
+        }
+    }
+
+    pub fn push(&mut self, name: &'static str, frames: &[TextureId]) {
+        let id = AnimationId(self.animations.len());
+        self.animations.push(Vec::from(frames));
+        self.lookup.insert(name, id);
+    }
+
+    pub fn get_frames(&self, anim_id: AnimationId) -> &[TextureId] {
+        // TODO unwrap_unchecked is probably safe unless AnimationId's are constructed elsewhere
+        self.animations.get(anim_id.0).unwrap()
+    }
+
+    pub fn lookup(&self, name: &'static str) -> Option<AnimationId> {
+        self.lookup.get(name).copied()
+    }
+}
+
 impl TextureRepository {
     pub fn new() -> Self {
         TextureRepository {
@@ -53,7 +85,7 @@ impl TextureRepository {
         texture_creator: &TextureCreator<WindowContext>,
         path: String,
     ) -> TextureId {
-        let texture = texture_creator.load_texture(&path).unwrap();
+        let texture = texture_creator.load_texture(path).unwrap();
         self.textures.push(texture);
         TextureId(self.textures.len() - 1)
     }
@@ -85,24 +117,22 @@ impl Eq for DrawCmd {}
 
 impl PartialOrd for DrawCmd {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        if self.pos.z == other.pos.z {
-            Some(std::cmp::Ordering::Equal)
-        } else if self.pos.z > other.pos.z {
-            Some(std::cmp::Ordering::Less)
-        } else {
-            Some(std::cmp::Ordering::Greater)
+        use std::cmp::Ordering::*;
+        match self.pos.z.cmp(&other.pos.z) {
+            Less => Some(Greater),
+            Equal => Some(Equal),
+            Greater => Some(Less),
         }
     }
 }
 
 impl Ord for DrawCmd {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        if self.pos.z == other.pos.z {
-            std::cmp::Ordering::Equal
-        } else if self.pos.z > other.pos.z {
-            std::cmp::Ordering::Less
-        } else {
-            std::cmp::Ordering::Greater
+        use std::cmp::Ordering::*;
+        match self.pos.z.cmp(&other.pos.z) {
+            Less => Greater,
+            Equal => Equal,
+            Greater => Less,
         }
     }
 }
@@ -136,8 +166,8 @@ impl DepthBuffer {
                     Some(Rect::new(
                         draw_cmd.pos.x,
                         draw_cmd.pos.y,
-                        draw_cmd.w as u32,
-                        draw_cmd.h as u32,
+                        draw_cmd.w,
+                        draw_cmd.h,
                     )),
                     0.0,
                     None,
@@ -182,17 +212,9 @@ impl Lightmap {
 pub struct Ctx {
     canvas: Canvas<Window>,
     textures: TextureRepository,
+    animations: AnimationRepository,
     lightmap: Lightmap,
     despawn_queue: RwLock<Vec<Entity>>,
-    player_textures: [TextureId; 4],
-    enemy_textures: [TextureId; 2],
-    bullet_textures: [TextureId; 2],
-    floor_texture: TextureId,
-    wall_texture: TextureId,
-    torch_textures: [TextureId; 3],
-    lever_texture: TextureId,
-    spawner_texture: TextureId,
-    exclamation_mark_texture: TextureId,
     input: Input,
     player_speed: f32,
     enemy_speed: f32,
@@ -204,6 +226,7 @@ pub struct Ctx {
     render_time_avg: u128,
     debug_draw_nav_colliders: bool,
     debug_draw_hitboxes: bool,
+    debug_draw_centerpoints: bool,
 
     spawner_entity: Option<Entity>,
 }
@@ -239,56 +262,53 @@ pub fn main() {
         .unwrap();
     font.set_style(sdl2::ttf::FontStyle::NORMAL);
 
-    let player_textures = [
+    let mut animations = AnimationRepository::new();
+
+    let t = [
         textures.load_texture(&texture_creator, "assets/textures/player_0.png".to_owned()),
         textures.load_texture(&texture_creator, "assets/textures/player_1.png".to_owned()),
         textures.load_texture(&texture_creator, "assets/textures/player_2.png".to_owned()),
         textures.load_texture(&texture_creator, "assets/textures/player_3.png".to_owned()),
     ];
+    animations.push("player_idle", &[t[0], t[1]]);
+    animations.push("player_walk", &[t[0], t[2], t[0], t[3]]);
 
-    let enemy_textures = [
+    let t = [
         textures.load_texture(&texture_creator, "assets/textures/blob_0.png".to_owned()),
         textures.load_texture(&texture_creator, "assets/textures/blob_1.png".to_owned()),
     ];
+    animations.push("enemy_walk", &[t[0], t[1]]);
 
-    let bullet_textures = [
+    let t = [
         textures.load_texture(&texture_creator, "assets/textures/bullet_1.png".to_owned()),
         textures.load_texture(&texture_creator, "assets/textures/bullet_2.png".to_owned()),
     ];
+    animations.push("bullet", &[t[0], t[1]]);
 
-    let floor_texture =
-        textures.load_texture(&texture_creator, "assets/textures/floor.png".to_owned());
-    let wall_texture =
-        textures.load_texture(&texture_creator, "assets/textures/wall.png".to_owned());
+    let t = textures.load_texture(&texture_creator, "assets/textures/floor.png".to_owned());
+    animations.push("floor", &[t]);
 
-    let torch_textures = [
+    let t = textures.load_texture(&texture_creator, "assets/textures/wall.png".to_owned());
+    animations.push("wall", &[t]);
+
+    let t = [
         textures.load_texture(&texture_creator, "assets/textures/torch_0.png".to_owned()),
         textures.load_texture(&texture_creator, "assets/textures/torch_1.png".to_owned()),
         textures.load_texture(&texture_creator, "assets/textures/torch_2.png".to_owned()),
     ];
+    animations.push("torch", &[t[0], t[1], t[2]]);
 
-    let lever_texture =
-        textures.load_texture(&texture_creator, "assets/textures/lever.png".to_owned());
-    let spawner_texture =
-        textures.load_texture(&texture_creator, "assets/textures/spawner.png".to_owned());
-    let exclamation_mark_texture = textures.load_texture(
-        &texture_creator,
-        "assets/textures/exclamation_mark.png".to_owned(),
-    );
+    let t = textures.load_texture(&texture_creator, "assets/textures/lever.png".to_owned());
+    animations.push("lever", &[t]);
+
+    let t = textures.load_texture(&texture_creator, "assets/textures/spawner.png".to_owned());
+    animations.push("spawner", &[t]);
 
     let ctx = Ctx {
         despawn_queue: RwLock::new(Vec::new()),
         lightmap: Lightmap::new(&canvas, 800, 800),
-        player_textures,
-        enemy_textures,
-        bullet_textures,
-        floor_texture,
-        wall_texture,
-        torch_textures,
-        lever_texture,
-        spawner_texture,
-        exclamation_mark_texture,
         textures,
+        animations,
         canvas,
         input: Input {
             up: false,
@@ -307,6 +327,7 @@ pub fn main() {
         bullet_speed: 4.0,
         debug_draw_nav_colliders: false,
         debug_draw_hitboxes: false,
+        debug_draw_centerpoints: false,
         bullet_lifetime: 60,
         player_fire_cooldown: 20,
         frame_time_avg: 0,
@@ -339,84 +360,26 @@ pub fn main() {
                     keycode: Some(Keycode::F2),
                     ..
                 } => ctx.debug_draw_hitboxes = !ctx.debug_draw_hitboxes,
+                Event::KeyDown {
+                    keycode: Some(Keycode::F3),
+                    ..
+                } => ctx.debug_draw_centerpoints = !ctx.debug_draw_centerpoints,
                 _ => {}
             }
         }
 
-        if event_pump.keyboard_state().is_scancode_pressed(Scancode::W) {
-            ctx.input.up = true;
-        } else {
-            ctx.input.up = false;
-        }
-
-        if event_pump.keyboard_state().is_scancode_pressed(Scancode::S) {
-            ctx.input.down = true;
-        } else {
-            ctx.input.down = false;
-        }
-
-        if event_pump.keyboard_state().is_scancode_pressed(Scancode::A) {
-            ctx.input.left = true;
-        } else {
-            ctx.input.left = false;
-        }
-
-        if event_pump.keyboard_state().is_scancode_pressed(Scancode::D) {
-            ctx.input.right = true;
-        } else {
-            ctx.input.right = false;
-        }
-
-        if event_pump
-            .keyboard_state()
-            .is_scancode_pressed(Scancode::Right)
-        {
-            ctx.input.fire_right = true;
-        } else {
-            ctx.input.fire_right = false;
-        }
-
-        if event_pump
-            .keyboard_state()
-            .is_scancode_pressed(Scancode::Left)
-        {
-            ctx.input.fire_left = true;
-        } else {
-            ctx.input.fire_left = false;
-        }
-
-        if event_pump
-            .keyboard_state()
-            .is_scancode_pressed(Scancode::Up)
-        {
-            ctx.input.fire_up = true;
-        } else {
-            ctx.input.fire_up = false;
-        }
-
-        if event_pump
-            .keyboard_state()
-            .is_scancode_pressed(Scancode::Down)
-        {
-            ctx.input.fire_down = true;
-        } else {
-            ctx.input.fire_down = false;
-        }
-
-        if event_pump
-            .keyboard_state()
-            .is_scancode_pressed(Scancode::LShift)
-        {
-            ctx.input.shift = true;
-        } else {
-            ctx.input.shift = false;
-        }
-
-        if event_pump.keyboard_state().is_scancode_pressed(Scancode::E) {
-            ctx.input.interact = true;
-        } else {
-            ctx.input.interact = false;
-        }
+        let kb = event_pump.keyboard_state();
+        let input = &mut ctx.input;
+        input.up = kb.is_scancode_pressed(Scancode::W);
+        input.down = kb.is_scancode_pressed(Scancode::S);
+        input.left = kb.is_scancode_pressed(Scancode::A);
+        input.right = kb.is_scancode_pressed(Scancode::D);
+        input.fire_right = kb.is_scancode_pressed(Scancode::Right);
+        input.fire_left = kb.is_scancode_pressed(Scancode::Left);
+        input.fire_up = kb.is_scancode_pressed(Scancode::Up);
+        input.fire_down = kb.is_scancode_pressed(Scancode::Down);
+        input.shift = kb.is_scancode_pressed(Scancode::LShift);
+        input.interact = kb.is_scancode_pressed(Scancode::E);
 
         let update_start = Instant::now();
         game::update(&world);
@@ -430,7 +393,7 @@ pub fn main() {
                 canvas.set_draw_color(Color::RGBA(0, 0, 0, 180));
                 canvas.clear();
                 world.run(|light: &Light, pos: &Pos| {
-                    let mut color = light.color.clone();
+                    let mut color = light.color;
                     color.a = 255;
                     canvas
                         .filled_circle(

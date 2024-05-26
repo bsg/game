@@ -1,6 +1,6 @@
 use std::ops::{Deref, DerefMut};
 
-use crate::{math::Vec2, TextureId};
+use crate::{math::Vec2, AnimationId};
 use ecs::{Component, Entity, World};
 use sdl2::{pixels::Color, rect::Rect};
 
@@ -38,9 +38,8 @@ impl DerefMut for Pos {
 #[derive(Component)]
 pub struct AnimatedSprite {
     // TODO u16
-    pub textures: [Option<[TextureId; 4]>; 2],
-    pub state: u32,
-    pub texture_index: u32,
+    anim: AnimationId,
+    pub frame: u32,
     pub width: u32,
     pub height: u32,
     pub ticks: u32,
@@ -58,15 +57,14 @@ impl AnimatedSprite {
         width: u32,
         height: u32,
         ticks_per_frame: u32,
-        textures: [Option<[TextureId; 4]>; 2],
+        anim: AnimationId,
         z_offset: Option<i16>,
     ) -> Self {
         AnimatedSprite {
             x_offset,
             y_offset,
-            textures,
-            state: 0,
-            texture_index: 0,
+            anim,
+            frame: 0,
             width,
             height,
             ticks: 0,
@@ -76,11 +74,16 @@ impl AnimatedSprite {
         }
     }
 
-    pub fn switch_state(&mut self, state: u32) {
-        if self.state != state {
-            self.state = state;
-            self.texture_index = 0;
+    pub fn anim(&self) -> AnimationId {
+        self.anim
+    }
+
+    pub fn switch_anim(&mut self, anim: AnimationId, ticks_per_frame: u32) {
+        if self.anim != anim {
+            self.anim = anim;
+            self.frame = 0;
             self.ticks = 0;
+            self.ticks_per_frame = ticks_per_frame;
         }
     }
 }

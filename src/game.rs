@@ -2,10 +2,7 @@
 
 use ecs::{Entity, Res, ResMut, With, Without, World};
 use rand::{thread_rng, Rng};
-use sdl2::{
-    pixels::Color,
-    rect::{Point, Rect},
-};
+use sdl2::{pixels::Color, rect::Rect};
 
 use crate::{
     components::{
@@ -104,8 +101,6 @@ pub fn render(world: &World) {
 
 fn spawn_player(world: &World, pos: Vec2<f32>) {
     let ctx = world.get_resource::<Ctx>().unwrap();
-    let tex = ctx.player_textures;
-
     world.spawn(&[
         &Player {
             fire_cooldown: ctx.player_fire_cooldown,
@@ -118,10 +113,7 @@ fn spawn_player(world: &World, pos: Vec2<f32>) {
             32,
             64,
             15,
-            [
-                Some([tex[0], tex[1], tex[0], tex[1]]),
-                Some([tex[0], tex[2], tex[0], tex[3]]),
-            ],
+            ctx.animations.lookup("player_idle").unwrap(),
             None,
         ),
         &ColliderGroup {
@@ -143,10 +135,18 @@ fn spawn_player(world: &World, pos: Vec2<f32>) {
 // ╚══════╝   ╚═╝   ╚══════╝   ╚═╝   ╚══════╝╚═╝     ╚═╝╚══════╝
 
 fn spawn_lever(world: &World, pos: Pos, on_interact: fn(&World, Entity)) {
-    let tex = world.get_resource::<Ctx>().unwrap().lever_texture;
+    let ctx = world.get_resource::<Ctx>().unwrap();
     world.spawn(&[
         &pos,
-        &AnimatedSprite::new(0, 0, 32, 32, 0, [Some([tex, tex, tex, tex]), None], None),
+        &AnimatedSprite::new(
+            -16,
+            -16,
+            32,
+            32,
+            0,
+            ctx.animations.lookup("lever").unwrap(),
+            None,
+        ),
         &Interactable {
             cooldown: 10,
             on_interact,
@@ -156,7 +156,7 @@ fn spawn_lever(world: &World, pos: Pos, on_interact: fn(&World, Entity)) {
 }
 
 fn spawn_spawner(world: &World, pos: Pos) -> Entity {
-    let tex = world.get_resource::<Ctx>().unwrap().spawner_texture;
+    let ctx = world.get_resource::<Ctx>().unwrap();
     world.spawn(&[
         &Prop {},
         &pos,
@@ -166,7 +166,7 @@ fn spawn_spawner(world: &World, pos: Pos) -> Entity {
             32,
             32,
             0,
-            [Some([tex, tex, tex, tex]), None],
+            ctx.animations.lookup("spawner").unwrap(),
             None,
         ),
         &Spawner {
@@ -184,7 +184,7 @@ fn spawn_spawner(world: &World, pos: Pos) -> Entity {
 }
 
 fn spawn_floor(world: &World, pos: Pos) -> Entity {
-    let tex = world.get_resource::<Ctx>().unwrap().floor_texture;
+    let ctx = world.get_resource::<Ctx>().unwrap();
     world.spawn(&[
         &Floor {},
         &pos,
@@ -194,14 +194,14 @@ fn spawn_floor(world: &World, pos: Pos) -> Entity {
             TILE_SIZE as u32,
             TILE_SIZE as u32,
             0,
-            [Some([tex, tex, tex, tex]), None],
+            ctx.animations.lookup("floor").unwrap(),
             None,
         ),
     ])
 }
 
 fn spawn_wall(world: &World, pos: Pos) -> Entity {
-    let tex = world.get_resource::<Ctx>().unwrap().wall_texture;
+    let ctx = world.get_resource::<Ctx>().unwrap();
     world.spawn(&[
         &Wall {},
         &pos,
@@ -211,7 +211,7 @@ fn spawn_wall(world: &World, pos: Pos) -> Entity {
             TILE_SIZE as u32,
             (TILE_SIZE * 2.) as u32,
             0,
-            [Some([tex, tex, tex, tex]), None],
+            ctx.animations.lookup("wall").unwrap(),
             None,
         ),
         &ColliderGroup {
@@ -230,16 +230,16 @@ fn spawn_wall(world: &World, pos: Pos) -> Entity {
 }
 
 fn spawn_torch(world: &World, pos: Pos) {
-    let tex = world.get_resource::<Ctx>().unwrap().torch_textures;
+    let ctx = world.get_resource::<Ctx>().unwrap();
     world.spawn(&[
         &pos,
         &AnimatedSprite::new(
             -16,
             -16,
-            64,
-            64,
+            32,
+            32,
             5,
-            [Some([tex[0], tex[1], tex[0], tex[2]]), None],
+            ctx.animations.lookup("torch").unwrap(),
             None,
         ),
         &Light {
@@ -251,7 +251,6 @@ fn spawn_torch(world: &World, pos: Pos) {
 
 fn spawn_enemy(world: &World, pos: Pos) {
     let ctx = world.get_resource::<Ctx>().unwrap();
-    let tex = ctx.enemy_textures;
 
     world.spawn(&[
         &Enemy {},
@@ -262,7 +261,7 @@ fn spawn_enemy(world: &World, pos: Pos) {
             32,
             32,
             30,
-            [Some([tex[0], tex[1], tex[0], tex[1]]), None],
+            ctx.animations.lookup("enemy_walk").unwrap(),
             None,
         ),
         &ColliderGroup {
@@ -275,7 +274,7 @@ fn spawn_enemy(world: &World, pos: Pos) {
                 CH_NONE,
                 CH_PROJECTILE,
                 Some(|world: &World, me: Entity, other: Entity| {
-                    if let Some(_) = world.get_component::<Projectile>(other) {
+                    if world.get_component::<Projectile>(other).is_some() {
                         let mut despawn_queue = world
                             .get_resource::<Ctx>()
                             .unwrap()
@@ -296,7 +295,6 @@ fn spawn_enemy(world: &World, pos: Pos) {
 
 fn spawn_bullet(world: &World, pos: Vec2<f32>, velocity_normal: Vec2<f32>) {
     let ctx = world.get_resource::<Ctx>().unwrap();
-    let tex = ctx.bullet_textures;
 
     world.spawn(&[
         &Projectile {
@@ -310,7 +308,7 @@ fn spawn_bullet(world: &World, pos: Vec2<f32>, velocity_normal: Vec2<f32>) {
             16,
             16,
             30,
-            [Some([tex[0], tex[1], tex[0], tex[1]]), None],
+            ctx.animations.lookup("bullet").unwrap(),
             None,
         ),
         &ColliderGroup {
@@ -349,15 +347,13 @@ fn update_player(world: &World) {
          pos: &mut Pos,
          colliders: &ColliderGroup,
          sprite: &mut AnimatedSprite| {
-            let collider = colliders.nav.as_ref().unwrap();
             if ctx.input.up | ctx.input.down | ctx.input.left | ctx.input.right {
-                sprite.switch_state(1);
-                sprite.ticks_per_frame = 5;
+                sprite.switch_anim(ctx.animations.lookup("player_walk").unwrap(), 5);
             } else {
-                sprite.switch_state(0);
-                sprite.ticks_per_frame = 30;
+                sprite.switch_anim(ctx.animations.lookup("player_idle").unwrap(), 30);
             }
 
+            let collider = colliders.nav.as_ref().unwrap();
             if ctx.input.up && !collider.top {
                 pos.y -= ctx.player_speed;
             }
@@ -506,7 +502,6 @@ fn update_spawners(world: &World) {
                 );
                 v.scale(2.0);
 
-                let tex = ctx.bullet_textures;
                 world.spawn(&[
                     pos,
                     &AnimatedSprite::new(
@@ -515,7 +510,7 @@ fn update_spawners(world: &World) {
                         4,
                         4,
                         30,
-                        [Some([tex[0], tex[1], tex[0], tex[1]]), None],
+                        ctx.animations.lookup("bullet").unwrap(),
                         None,
                     ),
                     &Projectile {
@@ -570,32 +565,33 @@ fn fix_colliders(world: &World) {
 
 fn detect_collisions(world: &World) {
     fn test(world: &World, e1: &Entity, c1: &mut Collider, e2: &Entity, c2: &mut Collider) {
-        if *e1 != *e2 && c1.collides_with & c2.channels != 0 {
-            if c1.bounds.has_intersection(c2.bounds) {
-                c1.is_colliding = true;
+        if *e1 != *e2
+            && c1.collides_with & c2.channels != 0
+            && c1.bounds.has_intersection(c2.bounds)
+        {
+            c1.is_colliding = true;
 
-                if let Some(on_collide) = c1.on_collide {
-                    on_collide(world, *e1, *e2);
-                }
+            if let Some(on_collide) = c1.on_collide {
+                on_collide(world, *e1, *e2);
+            }
 
-                if let Some(on_collide) = c2.on_collide {
-                    on_collide(world, *e2, *e1);
-                }
+            if let Some(on_collide) = c2.on_collide {
+                on_collide(world, *e2, *e1);
+            }
 
-                let d_bottom = c2.bounds.bottom() - c1.bounds.top();
-                let d_top = c1.bounds.bottom() - c2.bounds.top();
-                let d_left = c1.bounds.right() - c2.bounds.left();
-                let d_right = c2.bounds.right() - c1.bounds.left();
+            let d_bottom = c2.bounds.bottom() - c1.bounds.top();
+            let d_top = c1.bounds.bottom() - c2.bounds.top();
+            let d_left = c1.bounds.right() - c2.bounds.left();
+            let d_right = c2.bounds.right() - c1.bounds.left();
 
-                if d_top < d_bottom && d_top < d_left && d_top < d_right {
-                    c1.bottom = true;
-                } else if d_bottom < d_top && d_bottom < d_left && d_bottom < d_right {
-                    c1.top = true;
-                } else if d_left < d_right && d_left < d_top && d_left < d_bottom {
-                    c1.right = true;
-                } else if d_right < d_left && d_right < d_top && d_right < d_bottom {
-                    c1.left = true;
-                }
+            if d_top < d_bottom && d_top < d_left && d_top < d_right {
+                c1.bottom = true;
+            } else if d_bottom < d_top && d_bottom < d_left && d_bottom < d_right {
+                c1.top = true;
+            } else if d_left < d_right && d_left < d_top && d_left < d_bottom {
+                c1.right = true;
+            } else if d_right < d_left && d_right < d_top && d_right < d_bottom {
+                c1.left = true;
             }
         }
     }
@@ -618,17 +614,135 @@ fn detect_collisions(world: &World) {
         });
     }
 
+    world.run(|e1: &Entity, cg: &mut ColliderGroup| {
+        if let Some(c1) = cg.nav.as_mut() {
+            test_all(world, e1, c1);
+        }
+
+        if let Some(c1) = cg.hitbox.as_mut() {
+            test_all(world, e1, c1);
+        }
+    });
+}
+
+// ██████╗ ███████╗███╗   ██╗██████╗ ███████╗██████╗
+// ██╔══██╗██╔════╝████╗  ██║██╔══██╗██╔════╝██╔══██╗
+// ██████╔╝█████╗  ██╔██╗ ██║██║  ██║█████╗  ██████╔╝
+// ██╔══██╗██╔══╝  ██║╚██╗██║██║  ██║██╔══╝  ██╔══██╗
+// ██║  ██║███████╗██║ ╚████║██████╔╝███████╗██║  ██║
+// ╚═╝  ╚═╝╚══════╝╚═╝  ╚═══╝╚═════╝ ╚══════╝╚═╝  ╚═╝
+
+fn draw_sprites(world: &World) {
+    #[inline(always)]
+    fn update_anim(sprite: &mut AnimatedSprite, num_frames: usize) {
+        sprite.ticks += 1;
+        if sprite.ticks >= sprite.ticks_per_frame {
+            sprite.frame = if sprite.frame as usize == num_frames {
+                0
+            } else {
+                sprite.frame + 1
+            };
+            sprite.ticks = 0;
+        }
+    }
+
+    #[inline(always)]
+    fn draw(ctx: &mut Ctx, sprite: &mut AnimatedSprite, pos: &Pos) {
+        let frames = ctx.animations.get_frames(sprite.anim());
+        let tex = frames[sprite.frame as usize];
+        ctx.canvas
+            .copy_ex(
+                &ctx.textures.textures[*tex],
+                None,
+                Some(Rect::new(
+                    pos.x as i32 + sprite.x_offset as i32,
+                    pos.y as i32 + sprite.y_offset as i32,
+                    sprite.width,
+                    sprite.height,
+                )),
+                0.0,
+                None,
+                sprite.flip_horizontal,
+                false,
+            )
+            .unwrap();
+
+        update_anim(sprite, frames.len() - 1);
+    }
+
+    #[inline(always)]
+    fn push(ctx: &Ctx, depth_buffer: &mut DepthBuffer, sprite: &mut AnimatedSprite, pos: &Pos) {
+        let frames = ctx.animations.get_frames(sprite.anim());
+        let tex = frames[sprite.frame as usize];
+        depth_buffer.push(DrawCmd {
+            texture_id: tex,
+            pos: Vec3::<i32> {
+                x: pos.x.round() as i32 + sprite.x_offset as i32,
+                y: pos.y.round() as i32 + sprite.y_offset as i32,
+                z: pos.y.round() as i32
+                    + sprite.y_offset as i32
+                    + if sprite.z_offset.is_some() {
+                        sprite.z_offset.unwrap() as i32
+                    } else {
+                        0
+                    },
+            },
+            w: sprite.width,
+            h: sprite.height,
+            flip_horizontal: sprite.flip_horizontal,
+        });
+
+        update_anim(sprite, frames.len() - 1);
+    }
+
     world.run(
-        |e1: &Entity, cg: &mut ColliderGroup, mut ctx: ResMut<Ctx>| {
-            if let Some(c1) = cg.nav.as_mut() {
-                test_all(world, e1, c1);
-            }
+        |pos: &mut Pos, sprite: &mut AnimatedSprite, mut ctx: ResMut<Ctx>, _: With<Floor>| {
+            draw(&mut ctx, sprite, pos);
+        },
+    );
 
-            if let Some(c1) = cg.hitbox.as_mut() {
-                test_all(world, e1, c1);
-            }
+    world.run(
+        |pos: &mut Pos, sprite: &mut AnimatedSprite, mut ctx: ResMut<Ctx>, _: With<Prop>| {
+            draw(&mut ctx, sprite, pos);
+        },
+    );
 
-            // DEBUG
+    world.run(
+        |pos: &mut Pos,
+         sprite: &mut AnimatedSprite,
+         mut depth_buffer: ResMut<DepthBuffer>,
+         ctx: Res<Ctx>,
+         _: Without<Floor>,
+         _: Without<Prop>| {
+            push(&ctx, &mut depth_buffer, sprite, pos);
+        },
+    );
+
+    let ctx = world.get_resource_mut::<Ctx>().unwrap();
+    let depth_buffer = world.get_resource_mut::<DepthBuffer>().unwrap();
+    depth_buffer.draw_to_canvas(&mut ctx.canvas, &ctx.textures);
+
+    if ctx.debug_draw_centerpoints {
+        world.run(|pos: &Pos, mut ctx: ResMut<Ctx>, _: Without<Floor>| {
+            ctx.canvas.set_draw_color(Color::RGBA(0, 255, 0, 255));
+            ctx.canvas
+                .draw_line(
+                    ((pos.x - 2.) as i32, pos.y as i32),
+                    ((pos.x + 2.) as i32, pos.y as i32),
+                )
+                .unwrap();
+            ctx.canvas
+                .draw_line(
+                    (pos.x as i32, (pos.y - 2.) as i32),
+                    (pos.x as i32, (pos.y + 2.) as i32),
+                )
+                .unwrap();
+        });
+    }
+
+    // DEBUG
+    if ctx.debug_draw_nav_colliders || ctx.debug_draw_hitboxes {
+        world.run(|cg: &ColliderGroup| {
             if ctx.debug_draw_nav_colliders {
                 if let Some(collider) = cg.nav.as_ref() {
                     if collider.is_colliding {
@@ -652,115 +766,6 @@ fn detect_collisions(world: &World) {
                     }
                 }
             }
-        },
-    );
-}
-
-// ██████╗ ███████╗███╗   ██╗██████╗ ███████╗██████╗
-// ██╔══██╗██╔════╝████╗  ██║██╔══██╗██╔════╝██╔══██╗
-// ██████╔╝█████╗  ██╔██╗ ██║██║  ██║█████╗  ██████╔╝
-// ██╔══██╗██╔══╝  ██║╚██╗██║██║  ██║██╔══╝  ██╔══██╗
-// ██║  ██║███████╗██║ ╚████║██████╔╝███████╗██║  ██║
-// ╚═╝  ╚═╝╚══════╝╚═╝  ╚═══╝╚═════╝ ╚══════╝╚═╝  ╚═╝
-
-fn draw_sprites(world: &World) {
-    #[inline(always)]
-    fn update_anim(sprite: &mut AnimatedSprite) {
-        sprite.ticks += 1;
-        if sprite.ticks >= sprite.ticks_per_frame {
-            sprite.texture_index = if sprite.texture_index == 3 {
-                0
-            } else {
-                sprite.texture_index + 1
-            };
-            sprite.ticks = 0;
-        }
-    }
-
-    #[inline(always)]
-    fn draw(ctx: &mut Ctx, sprite: &mut AnimatedSprite, pos: &Pos) {
-        let tex = sprite.textures[sprite.state as usize].unwrap()[sprite.texture_index as usize];
-        ctx.canvas
-            .copy_ex(
-                &ctx.textures.textures[*tex],
-                None,
-                Some(Rect::new(
-                    pos.x as i32 + sprite.x_offset as i32,
-                    pos.y as i32 + sprite.y_offset as i32,
-                    sprite.width as u32,
-                    sprite.height as u32,
-                )),
-                0.0,
-                None,
-                sprite.flip_horizontal,
-                false,
-            )
-            .unwrap();
-
-        update_anim(sprite);
-    }
-
-    #[inline(always)]
-    fn push(depth_buffer: &mut DepthBuffer, sprite: &mut AnimatedSprite, pos: &Pos) {
-        let tex = sprite.textures[sprite.state as usize].unwrap()[sprite.texture_index as usize];
-        depth_buffer.push(DrawCmd {
-            texture_id: tex,
-            pos: Vec3::<i32> {
-                x: pos.x.round() as i32 + sprite.x_offset as i32,
-                y: pos.y.round() as i32 + sprite.y_offset as i32,
-                z: pos.y.round() as i32
-                    + sprite.y_offset as i32
-                    + if sprite.z_offset.is_some() {
-                        sprite.z_offset.unwrap() as i32
-                    } else {
-                        0
-                    },
-            },
-            w: sprite.width,
-            h: sprite.height,
-            flip_horizontal: sprite.flip_horizontal,
         });
-
-        update_anim(sprite);
     }
-
-    world.run(
-        |pos: &mut Pos, sprite: &mut AnimatedSprite, mut ctx: ResMut<Ctx>, _: With<Floor>| {
-            draw(&mut ctx, sprite, pos);
-        },
-    );
-
-    world.run(
-        |pos: &mut Pos, sprite: &mut AnimatedSprite, mut ctx: ResMut<Ctx>, _: With<Prop>| {
-            draw(&mut ctx, sprite, pos);
-        },
-    );
-
-    world.run(
-        |pos: &mut Pos,
-         sprite: &mut AnimatedSprite,
-         mut depth_buffer: ResMut<DepthBuffer>,
-         _: Without<Floor>,
-         _: Without<Prop>| {
-            push(&mut depth_buffer, sprite, pos);
-        },
-    );
-
-    let ctx = world.get_resource_mut::<Ctx>().unwrap();
-    let depth_buffer = world.get_resource_mut::<DepthBuffer>().unwrap();
-    depth_buffer.draw_to_canvas(&mut ctx.canvas, &ctx.textures);
-
-    world.run(|_: &Wall, pos: &Pos, mut ctx: ResMut<Ctx>| {
-        ctx.canvas.set_draw_color(Color::RGBA(0, 255, 0, 255));
-        ctx.canvas
-            .draw_point(Point::new(pos.x as i32, pos.y as i32))
-            .unwrap();
-    });
-
-    world.run(|_: &Player, pos: &Pos, mut ctx: ResMut<Ctx>| {
-        ctx.canvas.set_draw_color(Color::RGBA(255, 0, 0, 255));
-        ctx.canvas
-            .draw_point(Point::new(pos.x as i32, pos.y as i32))
-            .unwrap();
-    });
 }
