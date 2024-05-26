@@ -7,7 +7,7 @@ use sdl2::{pixels::Color, rect::Rect};
 use crate::{
     components::{
         AnimatedSprite, Collider, ColliderGroup, Enemy, Floor, Interactable, Light, Player, Pos,
-        Projectile, Prop, Spawner, Wall, CH_NAV, CH_NONE, CH_PROJECTILE,
+        Projectile, Prop, Spawner, Wall, CH_HITBOX, CH_NAV, CH_NONE,
     },
     math::{Vec2, Vec3},
     Ctx, DepthBuffer, DrawCmd,
@@ -47,26 +47,20 @@ pub fn init(world: &World) {
     spawn_torch(world, Pos::new(350.0, 570.0));
     spawn_torch(world, Pos::new(600.0, 200.0));
 
-    world.get_resource_mut::<Ctx>().unwrap().spawner_entity =
+    world.resource_mut::<Ctx>().unwrap().spawner_entity =
         Some(spawn_spawner(world, Pos::new(540.0, 640.0)));
 
     spawn_lever(
         world,
         Pos::new(200.0, 200.0),
         move |world: &World, me: Entity| {
-            let sprite = world.get_component_mut::<AnimatedSprite>(me).unwrap();
+            let sprite = world.component_mut::<AnimatedSprite>(me).unwrap();
             sprite.flip_horizontal = !sprite.flip_horizontal;
-            let spawner_entity = world
-                .get_resource_mut::<Ctx>()
-                .unwrap()
-                .spawner_entity
-                .unwrap();
-            let spawner = world.get_component_mut::<Spawner>(spawner_entity).unwrap();
+            let spawner_entity = world.resource_mut::<Ctx>().unwrap().spawner_entity.unwrap();
+            let spawner = world.component_mut::<Spawner>(spawner_entity).unwrap();
             spawner.is_active = !spawner.is_active;
-            world
-                .get_component_mut::<Light>(spawner_entity)
-                .unwrap()
-                .radius = if spawner.is_active { 60 } else { 0 };
+            world.component_mut::<Light>(spawner_entity).unwrap().radius =
+                if spawner.is_active { 60 } else { 0 };
         },
     );
 
@@ -82,7 +76,7 @@ pub fn update(world: &World) {
     detect_collisions(world);
 
     let mut despawn_queue = world
-        .get_resource_mut::<Ctx>()
+        .resource_mut::<Ctx>()
         .unwrap()
         .despawn_queue
         .write()
@@ -100,7 +94,7 @@ pub fn render(world: &World) {
 }
 
 fn spawn_player(world: &World, pos: Vec2<f32>) {
-    let ctx = world.get_resource::<Ctx>().unwrap();
+    let ctx = world.resource::<Ctx>().unwrap();
     world.spawn(&[
         &Player {
             fire_cooldown: ctx.player_fire_cooldown,
@@ -108,16 +102,13 @@ fn spawn_player(world: &World, pos: Vec2<f32>) {
         },
         &Pos::new(pos.x, pos.y),
         &AnimatedSprite::new(
-            -16,
-            -48,
-            32,
-            64,
+            (-16, -48, 32, 64),
             15,
             ctx.animations.lookup("player_idle").unwrap(),
             None,
         ),
         &ColliderGroup {
-            nav: Some(Collider::new(-13, 0, 26, 16, CH_NAV, CH_NAV, None)),
+            nav: Some(Collider::new((-13, 0, 26, 16), CH_NAV, CH_NAV, None)),
             hitbox: None,
         },
         &Light {
@@ -135,14 +126,11 @@ fn spawn_player(world: &World, pos: Vec2<f32>) {
 // ╚══════╝   ╚═╝   ╚══════╝   ╚═╝   ╚══════╝╚═╝     ╚═╝╚══════╝
 
 fn spawn_lever(world: &World, pos: Pos, on_interact: fn(&World, Entity)) {
-    let ctx = world.get_resource::<Ctx>().unwrap();
+    let ctx = world.resource::<Ctx>().unwrap();
     world.spawn(&[
         &pos,
         &AnimatedSprite::new(
-            -16,
-            -16,
-            32,
-            32,
+            (-16, -16, 32, 32),
             0,
             ctx.animations.lookup("lever").unwrap(),
             None,
@@ -156,15 +144,12 @@ fn spawn_lever(world: &World, pos: Pos, on_interact: fn(&World, Entity)) {
 }
 
 fn spawn_spawner(world: &World, pos: Pos) -> Entity {
-    let ctx = world.get_resource::<Ctx>().unwrap();
+    let ctx = world.resource::<Ctx>().unwrap();
     world.spawn(&[
         &Prop {},
         &pos,
         &AnimatedSprite::new(
-            -16,
-            -16,
-            32,
-            32,
+            (-16, -16, 32, 32),
             0,
             ctx.animations.lookup("spawner").unwrap(),
             None,
@@ -184,15 +169,12 @@ fn spawn_spawner(world: &World, pos: Pos) -> Entity {
 }
 
 fn spawn_floor(world: &World, pos: Pos) -> Entity {
-    let ctx = world.get_resource::<Ctx>().unwrap();
+    let ctx = world.resource::<Ctx>().unwrap();
     world.spawn(&[
         &Floor {},
         &pos,
         &AnimatedSprite::new(
-            -16,
-            -16,
-            TILE_SIZE as u32,
-            TILE_SIZE as u32,
+            (-16, -16, TILE_SIZE as u32, TILE_SIZE as u32),
             0,
             ctx.animations.lookup("floor").unwrap(),
             None,
@@ -201,27 +183,21 @@ fn spawn_floor(world: &World, pos: Pos) -> Entity {
 }
 
 fn spawn_wall(world: &World, pos: Pos) -> Entity {
-    let ctx = world.get_resource::<Ctx>().unwrap();
+    let ctx = world.resource::<Ctx>().unwrap();
     world.spawn(&[
         &Wall {},
         &pos,
         &AnimatedSprite::new(
-            -16,
-            -48,
-            TILE_SIZE as u32,
-            (TILE_SIZE * 2.) as u32,
+            (-16, -48, TILE_SIZE as u32, (TILE_SIZE * 2.) as u32),
             0,
             ctx.animations.lookup("wall").unwrap(),
             None,
         ),
         &ColliderGroup {
             nav: Some(Collider::new(
-                -16,
-                0,
-                32,
-                16,
+                (-16, 0, 32, 16),
+                CH_NAV | CH_HITBOX,
                 CH_NAV,
-                CH_NAV | CH_PROJECTILE,
                 None,
             )),
             hitbox: None,
@@ -230,14 +206,11 @@ fn spawn_wall(world: &World, pos: Pos) -> Entity {
 }
 
 fn spawn_torch(world: &World, pos: Pos) {
-    let ctx = world.get_resource::<Ctx>().unwrap();
+    let ctx = world.resource::<Ctx>().unwrap();
     world.spawn(&[
         &pos,
         &AnimatedSprite::new(
-            -16,
-            -16,
-            32,
-            32,
+            (-16, -16, 32, 32),
             5,
             ctx.animations.lookup("torch").unwrap(),
             None,
@@ -250,33 +223,27 @@ fn spawn_torch(world: &World, pos: Pos) {
 }
 
 fn spawn_enemy(world: &World, pos: Pos) {
-    let ctx = world.get_resource::<Ctx>().unwrap();
+    let ctx = world.resource::<Ctx>().unwrap();
 
     world.spawn(&[
         &Enemy {},
         &Pos::new(pos.x, pos.y),
         &AnimatedSprite::new(
-            -16,
-            -16,
-            32,
-            32,
+            (-16, -16, 32, 32),
             30,
             ctx.animations.lookup("enemy_walk").unwrap(),
             None,
         ),
         &ColliderGroup {
-            nav: Some(Collider::new(-10, 6, 22, 10, CH_NAV, CH_NAV, None)),
+            nav: Some(Collider::new((-10, 6, 22, 10), CH_NAV, CH_NAV, None)),
             hitbox: Some(Collider::new(
-                -16,
-                -16,
-                32,
-                32,
-                CH_NONE,
-                CH_PROJECTILE,
+                (-16, -16, 32, 32),
+                CH_HITBOX,
+                CH_HITBOX,
                 Some(|world: &World, me: Entity, other: Entity| {
-                    if world.get_component::<Projectile>(other).is_some() {
+                    if world.component::<Projectile>(other).is_some() {
                         let mut despawn_queue = world
-                            .get_resource::<Ctx>()
+                            .resource::<Ctx>()
                             .unwrap()
                             .despawn_queue
                             .write()
@@ -294,7 +261,7 @@ fn spawn_enemy(world: &World, pos: Pos) {
 }
 
 fn spawn_bullet(world: &World, pos: Vec2<f32>, velocity_normal: Vec2<f32>) {
-    let ctx = world.get_resource::<Ctx>().unwrap();
+    let ctx = world.resource::<Ctx>().unwrap();
 
     world.spawn(&[
         &Projectile {
@@ -303,25 +270,19 @@ fn spawn_bullet(world: &World, pos: Vec2<f32>, velocity_normal: Vec2<f32>) {
         },
         &Pos::new(pos.x, pos.y),
         &AnimatedSprite::new(
-            -8,
-            -8,
-            16,
-            16,
+            (-8, -8, 16, 16),
             30,
             ctx.animations.lookup("bullet").unwrap(),
             None,
         ),
         &ColliderGroup {
             nav: Some(Collider::new(
-                -6,
-                -6,
-                12,
-                12,
-                CH_PROJECTILE,
-                CH_PROJECTILE,
+                (-6, -6, 12, 12),
+                CH_HITBOX,
+                CH_HITBOX,
                 Some(|world: &World, me: Entity, _: Entity| {
                     let mut despawn_queue = world
-                        .get_resource::<Ctx>()
+                        .resource::<Ctx>()
                         .unwrap()
                         .despawn_queue
                         .write()
@@ -339,7 +300,7 @@ fn spawn_bullet(world: &World, pos: Vec2<f32>, velocity_normal: Vec2<f32>) {
 }
 
 fn update_player(world: &World) {
-    let ctx = world.get_resource::<Ctx>().unwrap();
+    let ctx = world.resource::<Ctx>().unwrap();
     let mut player_pos = Pos::zero();
 
     world.run(
@@ -469,7 +430,7 @@ fn update_projectiles(world: &World) {
         |entity: &Entity, projectile: &mut Projectile, pos: &mut Pos| {
             if projectile.ticks_left == 0 {
                 world
-                    .get_resource::<Ctx>()
+                    .resource::<Ctx>()
                     .unwrap()
                     .despawn_queue
                     .write()
@@ -505,10 +466,7 @@ fn update_spawners(world: &World) {
                 world.spawn(&[
                     pos,
                     &AnimatedSprite::new(
-                        0,
-                        0,
-                        4,
-                        4,
+                        (0, 0, 4, 4),
                         30,
                         ctx.animations.lookup("bullet").unwrap(),
                         None,
@@ -523,14 +481,11 @@ fn update_spawners(world: &World) {
                     },
                     &ColliderGroup {
                         nav: Some(Collider::new(
-                            -2,
-                            -2,
-                            4,
-                            4,
-                            0,
-                            CH_NAV,
+                            (-2, -2, 4, 4),
+                            CH_NONE,
+                            CH_NAV | CH_HITBOX,
                             Some(|world: &World, me: Entity, _: Entity| {
-                                world.get_component_mut::<Projectile>(me).unwrap().velocity =
+                                world.component_mut::<Projectile>(me).unwrap().velocity =
                                     Vec2::zero();
                             }),
                         )),
@@ -564,7 +519,7 @@ fn fix_colliders(world: &World) {
 }
 
 fn detect_collisions(world: &World) {
-    fn test(world: &World, e1: &Entity, c1: &mut Collider, e2: &Entity, c2: &mut Collider) {
+    fn test(world: &World, e1: &Entity, c1: &mut Collider, e2: &Entity, c2: &Collider) {
         if *e1 != *e2
             && c1.collides_with & c2.channels != 0
             && c1.bounds.has_intersection(c2.bounds)
@@ -573,10 +528,6 @@ fn detect_collisions(world: &World) {
 
             if let Some(on_collide) = c1.on_collide {
                 on_collide(world, *e1, *e2);
-            }
-
-            if let Some(on_collide) = c2.on_collide {
-                on_collide(world, *e2, *e1);
             }
 
             let d_bottom = c2.bounds.bottom() - c1.bounds.top();
@@ -679,13 +630,7 @@ fn draw_sprites(world: &World) {
             pos: Vec3::<i32> {
                 x: pos.x.round() as i32 + sprite.x_offset as i32,
                 y: pos.y.round() as i32 + sprite.y_offset as i32,
-                z: pos.y.round() as i32
-                    + sprite.y_offset as i32
-                    + if sprite.z_offset.is_some() {
-                        sprite.z_offset.unwrap() as i32
-                    } else {
-                        0
-                    },
+                z: pos.y.round() as i32 + sprite.z_offset.map_or(0, |o| o) as i32,
             },
             w: sprite.width,
             h: sprite.height,
@@ -718,8 +663,8 @@ fn draw_sprites(world: &World) {
         },
     );
 
-    let ctx = world.get_resource_mut::<Ctx>().unwrap();
-    let depth_buffer = world.get_resource_mut::<DepthBuffer>().unwrap();
+    let ctx = world.resource_mut::<Ctx>().unwrap();
+    let depth_buffer = world.resource_mut::<DepthBuffer>().unwrap();
     depth_buffer.draw_to_canvas(&mut ctx.canvas, &ctx.textures);
 
     if ctx.debug_draw_centerpoints {
@@ -747,10 +692,10 @@ fn draw_sprites(world: &World) {
                 if let Some(collider) = cg.nav.as_ref() {
                     if collider.is_colliding {
                         ctx.canvas.set_draw_color(Color::RGB(255, 0, 0));
-                        let _ = ctx.canvas.draw_rect(collider.bounds);
+                        ctx.canvas.draw_rect(collider.bounds).unwrap();
                     } else {
                         ctx.canvas.set_draw_color(Color::RGB(0, 255, 0));
-                        let _ = ctx.canvas.draw_rect(collider.bounds);
+                        ctx.canvas.draw_rect(collider.bounds).unwrap();
                     }
                 }
             }
@@ -759,10 +704,10 @@ fn draw_sprites(world: &World) {
                 if let Some(collider) = cg.hitbox.as_ref() {
                     if collider.is_colliding {
                         ctx.canvas.set_draw_color(Color::RGB(255, 0, 0));
-                        let _ = ctx.canvas.draw_rect(collider.bounds);
+                        ctx.canvas.draw_rect(collider.bounds).unwrap();
                     } else {
                         ctx.canvas.set_draw_color(Color::RGB(255, 255, 0));
-                        let _ = ctx.canvas.draw_rect(collider.bounds);
+                        ctx.canvas.draw_rect(collider.bounds).unwrap();
                     }
                 }
             }

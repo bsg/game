@@ -52,21 +52,18 @@ pub struct AnimatedSprite {
 
 impl AnimatedSprite {
     pub fn new(
-        x_offset: i16,
-        y_offset: i16,
-        width: u32,
-        height: u32,
+        rect: (i16, i16, u32, u32),
         ticks_per_frame: u32,
         anim: AnimationId,
         z_offset: Option<i16>,
     ) -> Self {
         AnimatedSprite {
-            x_offset,
-            y_offset,
+            x_offset: rect.0,
+            y_offset: rect.1,
             anim,
             frame: 0,
-            width,
-            height,
+            width: rect.2,
+            height: rect.3,
             ticks: 0,
             ticks_per_frame,
             flip_horizontal: false,
@@ -90,7 +87,7 @@ impl AnimatedSprite {
 
 pub const CH_NONE: usize = 0;
 pub const CH_NAV: usize = 1;
-pub const CH_PROJECTILE: usize = 1 << 1;
+pub const CH_HITBOX: usize = 1 << 1;
 
 #[derive(Clone, Copy)]
 pub struct Collider {
@@ -109,10 +106,7 @@ pub struct Collider {
 
 impl Collider {
     pub fn new(
-        x_offset: i32,
-        y_offset: i32,
-        w: u32,
-        h: u32,
+        rect: (i32, i32, u32, u32),
         channels: usize,
         collides_with: usize,
         on_collide: Option<fn(&World, Entity, Entity)>,
@@ -120,9 +114,9 @@ impl Collider {
         Collider {
             channels,
             collides_with,
-            x_offset,
-            y_offset,
-            bounds: Rect::new(0, 0, w, h),
+            x_offset: rect.0,
+            y_offset: rect.1,
+            bounds: Rect::new(0, 0, rect.2, rect.3),
             is_colliding: false,
             left: false,
             right: false,

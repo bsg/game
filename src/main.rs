@@ -339,7 +339,7 @@ pub fn main() {
 
     world.add_resource(ctx);
     world.add_resource(DepthBuffer::new());
-    let ctx = world.get_resource_mut::<Ctx>().unwrap();
+    let ctx = world.resource_mut::<Ctx>().unwrap();
 
     game::init(&world);
 
