@@ -20,7 +20,7 @@ use sdl2::{
     keyboard::{Keycode, Scancode},
     pixels::Color,
     rect::Rect,
-    render::{Canvas, RenderTarget, Texture, TextureCreator},
+    render::{Canvas, Texture, TextureCreator},
     video::{Window, WindowContext},
 };
 
@@ -37,15 +37,11 @@ impl Deref for TextureId {
     }
 }
 
-struct TextureRepository {
-    textures: Vec<Texture>,
-}
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct AnimationId(usize);
 
 struct AnimationRepository {
-    animations: Vec<Vec<TextureId>>,
+    animations: Vec<Vec<Sprite>>,
     lookup: HashMap<&'static str, AnimationId>,
 }
 
@@ -57,20 +53,24 @@ impl AnimationRepository {
         }
     }
 
-    pub fn push(&mut self, name: &'static str, frames: &[TextureId]) {
+    pub fn push(&mut self, name: &'static str, frames: &[Sprite]) {
         let id = AnimationId(self.animations.len());
         self.animations.push(Vec::from(frames));
         self.lookup.insert(name, id);
     }
 
-    pub fn get_frames(&self, anim_id: AnimationId) -> &[TextureId] {
+    pub fn get_frames(&self, anim_id: AnimationId) -> &[Sprite] {
         // TODO unwrap_unchecked is probably safe unless AnimationId's are constructed elsewhere
         self.animations.get(anim_id.0).unwrap()
     }
 
-    pub fn lookup(&self, name: &'static str) -> Option<AnimationId> {
+    pub fn get(&self, name: &'static str) -> Option<AnimationId> {
         self.lookup.get(name).copied()
     }
+}
+
+struct TextureRepository {
+    textures: Vec<Texture>,
 }
 
 impl TextureRepository {
@@ -98,12 +98,70 @@ impl TextureRepository {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct Sprite(u16, u16, u16, u16);
+
+impl Into<Sprite> for (u16, u16, u16, u16) {
+    fn into(self) -> Sprite {
+        Sprite(self.0, self.1, self.2, self.3)
+    }
+}
+
+struct Spritesheet {
+    texture: Texture,
+    tile_size: u16,
+}
+
+impl Spritesheet {
+    pub fn new_from_file(
+        texture_creator: &TextureCreator<WindowContext>,
+        path: &'static str,
+        tile_size: u16,
+    ) -> Self {
+        if let Ok(texture) = texture_creator.load_texture(path) {
+            Spritesheet { texture, tile_size }
+        } else {
+            panic!("Failed to load texture {}", path)
+        }
+    }
+
+    pub fn draw_to_canvas(
+        &self,
+        canvas: &mut Canvas<Window>,
+        src: Sprite,
+        dst: (i32, i32),
+        angle: f64,
+        flip_horizontal: bool,
+        flip_vertical: bool,
+    ) {
+        canvas
+            .copy_ex(
+                &self.texture,
+                Some(Rect::new(
+                    (src.0 * self.tile_size) as i32,
+                    (src.1 * self.tile_size) as i32,
+                    (self.tile_size * src.2) as u32,
+                    (self.tile_size * src.3) as u32,
+                )),
+                Some(Rect::new(
+                    dst.0,
+                    dst.1,
+                    (self.tile_size * src.2 * 2) as u32,
+                    (self.tile_size * src.3 * 2) as u32,
+                )),
+                angle,
+                None,
+                flip_horizontal,
+                flip_vertical,
+            )
+            .unwrap();
+    }
+}
+
 // TODO dunno what to call this
 struct DrawCmd {
-    texture_id: TextureId,
+    sprite: Sprite,
     pos: Vec3<i32>,
-    w: u32,
-    h: u32,
     flip_horizontal: bool,
 }
 
@@ -153,28 +211,16 @@ impl DepthBuffer {
         self.buffer.push(texture);
     }
 
-    pub fn draw_to_canvas<T: RenderTarget>(
-        &mut self,
-        canvas: &mut Canvas<T>,
-        texture_repo: &TextureRepository,
-    ) {
+    pub fn draw_to_canvas(&mut self, canvas: &mut Canvas<Window>, spritesheet: &Spritesheet) {
         while let Some(draw_cmd) = self.buffer.pop() {
-            canvas
-                .copy_ex(
-                    texture_repo.get(draw_cmd.texture_id),
-                    None,
-                    Some(Rect::new(
-                        draw_cmd.pos.x,
-                        draw_cmd.pos.y,
-                        draw_cmd.w,
-                        draw_cmd.h,
-                    )),
-                    0.0,
-                    None,
-                    draw_cmd.flip_horizontal,
-                    false,
-                )
-                .unwrap();
+            spritesheet.draw_to_canvas(
+                canvas,
+                draw_cmd.sprite,
+                (draw_cmd.pos.x, draw_cmd.pos.y),
+                0.,
+                draw_cmd.flip_horizontal,
+                false,
+            )
         }
     }
 }
@@ -211,7 +257,7 @@ impl Lightmap {
 #[derive(Resource)]
 pub struct Ctx {
     canvas: Canvas<Window>,
-    textures: TextureRepository,
+    spritesheet: Spritesheet,
     animations: AnimationRepository,
     lightmap: Lightmap,
     despawn_queue: RwLock<Vec<Entity>>,
@@ -255,8 +301,6 @@ pub fn main() {
 
     let texture_creator = canvas.texture_creator();
 
-    let mut textures = TextureRepository::new();
-
     let mut font = ttf_context
         .load_font("assets/fonts/comic_sans.ttf", 16)
         .unwrap();
@@ -264,50 +308,46 @@ pub fn main() {
 
     let mut animations = AnimationRepository::new();
 
-    let t = [
-        textures.load_texture(&texture_creator, "assets/textures/player_0.png".to_owned()),
-        textures.load_texture(&texture_creator, "assets/textures/player_1.png".to_owned()),
-        textures.load_texture(&texture_creator, "assets/textures/player_2.png".to_owned()),
-        textures.load_texture(&texture_creator, "assets/textures/player_3.png".to_owned()),
-    ];
-    animations.push("player_idle", &[t[0], t[1]]);
-    animations.push("player_walk", &[t[0], t[2], t[0], t[3]]);
+    animations.push("player_idle", &[(0, 0, 1, 2).into(), (1, 0, 1, 2).into()]);
+    animations.push(
+        "player_walk",
+        &[
+            (0, 0, 1, 2).into(),
+            (2, 0, 1, 2).into(),
+            (0, 0, 1, 2).into(),
+            (3, 0, 1, 2).into(),
+        ],
+    );
 
-    let t = [
-        textures.load_texture(&texture_creator, "assets/textures/blob_0.png".to_owned()),
-        textures.load_texture(&texture_creator, "assets/textures/blob_1.png".to_owned()),
-    ];
-    animations.push("enemy_walk", &[t[0], t[1]]);
+    animations.push("enemy_walk", &[(4, 0, 2, 2).into(), (6, 0, 2, 2).into()]);
 
-    let t = [
-        textures.load_texture(&texture_creator, "assets/textures/bullet_1.png".to_owned()),
-        textures.load_texture(&texture_creator, "assets/textures/bullet_2.png".to_owned()),
-    ];
-    animations.push("bullet", &[t[0], t[1]]);
+    animations.push("bullet", &[(11, 0, 1, 1).into(), (12, 0, 1, 1).into()]);
 
-    let t = textures.load_texture(&texture_creator, "assets/textures/floor.png".to_owned());
-    animations.push("floor", &[t]);
+    animations.push("floor", &[(8, 0, 1, 1).into()]);
 
-    let t = textures.load_texture(&texture_creator, "assets/textures/wall.png".to_owned());
-    animations.push("wall", &[t]);
+    animations.push("wall", &[(0, 2, 1, 2).into()]);
 
-    let t = [
-        textures.load_texture(&texture_creator, "assets/textures/torch_0.png".to_owned()),
-        textures.load_texture(&texture_creator, "assets/textures/torch_1.png".to_owned()),
-        textures.load_texture(&texture_creator, "assets/textures/torch_2.png".to_owned()),
-    ];
-    animations.push("torch", &[t[0], t[1], t[2]]);
+    animations.push(
+        "torch",
+        &[
+            (9, 1, 1, 1).into(),
+            (10, 1, 1, 1).into(),
+            (11, 1, 1, 1).into(),
+        ],
+    );
 
-    let t = textures.load_texture(&texture_creator, "assets/textures/lever.png".to_owned());
-    animations.push("lever", &[t]);
+    animations.push("lever", &[(8, 1, 1, 1).into()]);
 
-    let t = textures.load_texture(&texture_creator, "assets/textures/spawner.png".to_owned());
-    animations.push("spawner", &[t]);
+    animations.push("spawner", &[(9, 0, 1, 1).into()]);
 
     let ctx = Ctx {
         despawn_queue: RwLock::new(Vec::new()),
         lightmap: Lightmap::new(&canvas, 800, 800),
-        textures,
+        spritesheet: Spritesheet::new_from_file(
+            &texture_creator,
+            "assets/textures/spritesheet.png",
+            16,
+        ),
         animations,
         canvas,
         input: Input {
