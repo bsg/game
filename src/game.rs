@@ -2,7 +2,7 @@
 
 use ecs::{Entity, Res, ResMut, With, Without, World};
 use rand::{thread_rng, Rng};
-use sdl2::{pixels::Color, rect::Rect};
+use sdl2::pixels::Color;
 
 use crate::{
     components::{
@@ -454,36 +454,36 @@ fn update_spawners(world: &World) {
             // Particles
             if spawner.particle_ticks_left == 0 {
                 for _ in 0..2 {
-                let mut v = Vec2::new(
-                    thread_rng().gen_range(-1.0..1.0),
-                    thread_rng().gen_range(-1.0..1.0),
-                );
-                v.scale(2.0);
+                    let mut v = Vec2::new(
+                        thread_rng().gen_range(-1.0..1.0),
+                        thread_rng().gen_range(-1.0..1.0),
+                    );
+                    v.scale(2.0);
 
-                world.spawn(&[
-                    pos,
-                    &Projectile {
-                        velocity: v,
-                        ticks_left: 60,
-                    },
-                    &Light {
-                        radius: 2,
-                        color: Color::RGB(255, 255, 255),
-                    },
-                    &ColliderGroup {
-                        nav: Some(Collider::new(
-                            (-2, -2, 4, 4),
-                            CH_NONE,
-                            CH_NAV | CH_HITBOX,
-                            Some(|world: &World, me: Entity, _: Entity| {
-                                world.component_mut::<Projectile>(me).unwrap().velocity =
-                                    Vec2::zero();
-                            }),
-                        )),
-                        hitbox: None,
-                    },
-                ]);
-            }
+                    world.spawn(&[
+                        pos,
+                        &Projectile {
+                            velocity: v,
+                            ticks_left: 60,
+                        },
+                        &Light {
+                            radius: 2,
+                            color: Color::RGB(255, 255, 255),
+                        },
+                        &ColliderGroup {
+                            nav: Some(Collider::new(
+                                (-2, -2, 4, 4),
+                                CH_NONE,
+                                CH_NAV | CH_HITBOX,
+                                Some(|world: &World, me: Entity, _: Entity| {
+                                    world.component_mut::<Projectile>(me).unwrap().velocity =
+                                        Vec2::zero();
+                                }),
+                            )),
+                            hitbox: None,
+                        },
+                    ]);
+                }
 
                 spawner.particle_ticks_left = spawner.particle_cooldown;
             } else {

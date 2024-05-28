@@ -5,10 +5,7 @@ mod game;
 mod math;
 
 use std::{
-    collections::{BinaryHeap, HashMap},
-    ops::Deref,
-    sync::RwLock,
-    time::{Duration, Instant},
+    collections::{BinaryHeap, HashMap}, mem::MaybeUninit, ops::Deref, sync::RwLock, time::{Duration, Instant}
 };
 
 use ecs::{Entity, Resource, World};
@@ -69,46 +66,17 @@ impl AnimationRepository {
     }
 }
 
-struct TextureRepository {
-    textures: Vec<Texture>,
-}
-
-impl TextureRepository {
-    pub fn new() -> Self {
-        TextureRepository {
-            textures: Vec::new(),
-        }
-    }
-
-    pub fn load_texture(
-        &mut self,
-        texture_creator: &TextureCreator<WindowContext>,
-        path: String,
-    ) -> TextureId {
-        let texture = texture_creator.load_texture(path).unwrap();
-        self.textures.push(texture);
-        TextureId(self.textures.len() - 1)
-    }
-
-    pub fn get(&self, id: TextureId) -> &Texture {
-        match self.textures.get(*id) {
-            Some(tex) => tex,
-            None => panic!("no texture with id {}", *id),
-        }
-    }
-}
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Sprite(u16, u16, u16, u16);
 
-impl Into<Sprite> for (u16, u16, u16, u16) {
-    fn into(self) -> Sprite {
-        Sprite(self.0, self.1, self.2, self.3)
+impl From<(u16, u16, u16, u16)> for Sprite {
+    fn from(value: (u16, u16, u16, u16)) -> Self {
+        Sprite(value.0, value.1, value.2, value.3)
     }
 }
 
 struct Spritesheet {
-    texture: Texture,
+    texture: MaybeUninit<Texture>,
     tile_size: u16,
 }
 
@@ -119,7 +87,7 @@ impl Spritesheet {
         tile_size: u16,
     ) -> Self {
         if let Ok(texture) = texture_creator.load_texture(path) {
-            Spritesheet { texture, tile_size }
+            Spritesheet { texture: MaybeUninit::new(texture), tile_size }
         } else {
             panic!("Failed to load texture {}", path)
         }
@@ -136,7 +104,7 @@ impl Spritesheet {
     ) {
         canvas
             .copy_ex(
-                &self.texture,
+                unsafe { self.texture.assume_init_ref() },
                 Some(Rect::new(
                     (src.0 * self.tile_size) as i32,
                     (src.1 * self.tile_size) as i32,
@@ -155,6 +123,12 @@ impl Spritesheet {
                 flip_vertical,
             )
             .unwrap();
+    }
+}
+
+impl Drop for Spritesheet {
+    fn drop(&mut self) {
+        unsafe { self.texture.assume_init_read().destroy() }
     }
 }
 
@@ -404,6 +378,17 @@ pub fn main() {
                     keycode: Some(Keycode::F3),
                     ..
                 } => ctx.debug_draw_centerpoints = !ctx.debug_draw_centerpoints,
+                Event::KeyDown {
+                    keycode: Some(Keycode::F12),
+                    ..
+                } => {
+                    ctx.spritesheet = Spritesheet::new_from_file(
+                        &ctx.canvas.texture_creator(),
+                        "assets/textures/spritesheet.png",
+                        16,
+                    );
+                    println!("Assets reloaded");
+                }
                 _ => {}
             }
         }
