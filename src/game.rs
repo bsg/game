@@ -191,7 +191,7 @@ fn spawn_wall(world: &World, pos: Pos) -> Entity {
         ),
         &ColliderGroup {
             nav: Some(Collider::new(
-                (-16, 0, 32, 16),
+                (-16, -14, 32, 30),
                 CH_NAV | CH_HITBOX,
                 CH_NAV,
                 None,
