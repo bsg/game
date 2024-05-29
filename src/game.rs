@@ -1,5 +1,3 @@
-// BUG lights don't blend properly
-
 use ecs::{Entity, Res, ResMut, With, Without, World};
 use rand::{thread_rng, Rng};
 use sdl2::pixels::Color;
@@ -109,17 +107,10 @@ fn spawn_player(world: &World, pos: Vec2<f32>) {
         },
         &Light {
             radius: 100,
-            color: Color::RGB(200, 200, 200),
+            color: Color::RGB(50, 50, 255),
         },
     ]);
 }
-
-// ███████╗██╗   ██╗███████╗████████╗███████╗███╗   ███╗███████╗
-// ██╔════╝╚██╗ ██╔╝██╔════╝╚══██╔══╝██╔════╝████╗ ████║██╔════╝
-// ███████╗ ╚████╔╝ ███████╗   ██║   █████╗  ██╔████╔██║███████╗
-// ╚════██║  ╚██╔╝  ╚════██║   ██║   ██╔══╝  ██║╚██╔╝██║╚════██║
-// ███████║   ██║   ███████║   ██║   ███████╗██║ ╚═╝ ██║███████║
-// ╚══════╝   ╚═╝   ╚══════╝   ╚═╝   ╚══════╝╚═╝     ╚═╝╚══════╝
 
 fn spawn_lever(world: &World, pos: Pos, on_interact: fn(&World, Entity)) {
     let ctx = world.resource::<Ctx>().unwrap();
@@ -159,7 +150,7 @@ fn spawn_spawner(world: &World, pos: Pos) -> Entity {
         },
         &Light {
             radius: 0,
-            color: Color::RGB(150, 255, 150),
+            color: Color::RGB(150, 150, 150),
         },
     ])
 }
@@ -213,7 +204,7 @@ fn spawn_torch(world: &World, pos: Pos) {
         ),
         &Light {
             radius: 120,
-            color: Color::RGB(255, 255, 200),
+            color: Color::RGB(255, 255, 0),
         },
     ]);
 }
@@ -294,6 +285,13 @@ fn spawn_bullet(world: &World, pos: Vec2<f32>, velocity_normal: Vec2<f32>) {
         },
     ]);
 }
+
+// ███████╗██╗   ██╗███████╗████████╗███████╗███╗   ███╗███████╗
+// ██╔════╝╚██╗ ██╔╝██╔════╝╚══██╔══╝██╔════╝████╗ ████║██╔════╝
+// ███████╗ ╚████╔╝ ███████╗   ██║   █████╗  ██╔████╔██║███████╗
+// ╚════██║  ╚██╔╝  ╚════██║   ██║   ██╔══╝  ██║╚██╔╝██║╚════██║
+// ███████║   ██║   ███████║   ██║   ███████╗██║ ╚═╝ ██║███████║
+// ╚══════╝   ╚═╝   ╚══════╝   ╚═╝   ╚══════╝╚═╝     ╚═╝╚══════╝
 
 fn update_player(world: &World) {
     let ctx = world.resource::<Ctx>().unwrap();

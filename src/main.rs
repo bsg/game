@@ -5,19 +5,22 @@ mod game;
 mod math;
 
 use std::{
-    collections::{BinaryHeap, HashMap}, mem::MaybeUninit, ops::Deref, sync::RwLock, time::{Duration, Instant}
+    collections::{BinaryHeap, HashMap},
+    mem::MaybeUninit,
+    ops::Deref,
+    sync::RwLock,
+    time::{Duration, Instant},
 };
 
 use ecs::{Entity, Resource, World};
 use math::Vec3;
 use sdl2::{
     event::Event,
-    gfx::primitives::DrawRenderer,
     image::{InitFlag, LoadTexture},
     keyboard::{Keycode, Scancode},
     pixels::Color,
     rect::Rect,
-    render::{Canvas, Texture, TextureCreator},
+    render::{BlendMode, Canvas, Texture, TextureCreator},
     video::{Window, WindowContext},
 };
 
@@ -87,7 +90,10 @@ impl Spritesheet {
         tile_size: u16,
     ) -> Self {
         if let Ok(texture) = texture_creator.load_texture(path) {
-            Spritesheet { texture: MaybeUninit::new(texture), tile_size }
+            Spritesheet {
+                texture: MaybeUninit::new(texture),
+                tile_size,
+            }
         } else {
             panic!("Failed to load texture {}", path)
         }
@@ -233,6 +239,7 @@ pub struct Ctx {
     canvas: Canvas<Window>,
     spritesheet: Spritesheet,
     animations: AnimationRepository,
+    light_tex: Texture,
     lightmap: Lightmap,
     despawn_queue: RwLock<Vec<Entity>>,
     input: Input,
@@ -252,6 +259,7 @@ pub struct Ctx {
 }
 
 pub fn main() {
+    let mut is_fullscreen = false;
     let world = World::new();
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
@@ -316,6 +324,9 @@ pub fn main() {
 
     let ctx = Ctx {
         despawn_queue: RwLock::new(Vec::new()),
+        light_tex: texture_creator
+            .load_texture("assets/textures/light.png")
+            .unwrap(),
         lightmap: Lightmap::new(&canvas, 800, 800),
         spritesheet: Spritesheet::new_from_file(
             &texture_creator,
@@ -379,6 +390,20 @@ pub fn main() {
                     ..
                 } => ctx.debug_draw_centerpoints = !ctx.debug_draw_centerpoints,
                 Event::KeyDown {
+                    keycode: Some(Keycode::F9),
+                    ..
+                } => {
+                    is_fullscreen = !is_fullscreen;
+                    ctx.canvas
+                        .window_mut()
+                        .set_fullscreen(if is_fullscreen {
+                            sdl2::video::FullscreenType::Desktop
+                        } else {
+                            sdl2::video::FullscreenType::Off
+                        })
+                        .unwrap();
+                }
+                Event::KeyDown {
                     keycode: Some(Keycode::F12),
                     ..
                 } => {
@@ -415,35 +440,33 @@ pub fn main() {
 
         ctx.canvas
             .with_texture_canvas(&mut ctx.lightmap.texture, |canvas| {
-                canvas.set_draw_color(Color::RGBA(0, 0, 0, 180));
+                canvas.set_draw_color(Color::RGB(70, 70, 70));
                 canvas.clear();
-                world.run(|light: &Light, pos: &Pos| {
-                    let mut color = light.color;
-                    color.a = 255;
+                ctx.light_tex.set_blend_mode(BlendMode::Add);
+                world.run(|light: &mut Light, pos: &Pos| {
+                    ctx.light_tex
+                        .set_color_mod(light.color.r, light.color.g, light.color.b);
                     canvas
-                        .filled_circle(
-                            pos.x as i16,
-                            pos.y as i16,
-                            (light.radius as f32 * 0.7) as i16,
-                            color,
+                        .copy(
+                            &ctx.light_tex,
+                            None,
+                            Rect::from_center(
+                                (pos.x as i32, pos.y as i32),
+                                (light.radius as u32) * 2,
+                                (light.radius as u32) * 2,
+                            ),
                         )
-                        .unwrap();
-                    color.a = 127;
-                    canvas
-                        .filled_circle(pos.x as i16, pos.y as i16, light.radius, color)
                         .unwrap();
                 });
             })
             .unwrap();
 
-        ctx.canvas.set_draw_color(Color::RGB(16, 16, 16));
+        ctx.canvas.set_draw_color(Color::RGB(0, 0, 0));
         ctx.canvas.clear();
 
         game::render(&world);
 
-        ctx.canvas
-            .copy(&ctx.lightmap.texture, None, Rect::new(0, 0, 800, 800))
-            .unwrap();
+        ctx.canvas.copy(&ctx.lightmap.texture, None, None).unwrap();
 
         let end = Instant::now().duration_since(render_start);
         ctx.render_time_avg = (ctx.render_time_avg + end.as_micros()) / 2;

@@ -155,7 +155,7 @@ pub struct Projectile {
 
 #[derive(Component)]
 pub struct Light {
-    pub radius: i16,
+    pub radius: u16,
     pub color: Color,
 }
 
