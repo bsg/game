@@ -183,3 +183,6 @@ pub struct Spawner {
     pub particle_cooldown: u32,
     pub particle_ticks_left: u32,
 }
+
+#[derive(Component)]
+pub struct Static {}

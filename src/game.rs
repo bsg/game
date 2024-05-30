@@ -1,3 +1,10 @@
+// TODO camera
+// TODO serializable entity definitions
+// TODO serializable room definitions
+// TODO how do we wanna scale sprites around entity centerpoint?
+// FIXME fix shadows
+// FIXME colliders are still fucky
+
 use ecs::{Entity, Res, ResMut, With, Without, World};
 use rand::{thread_rng, Rng};
 use sdl2::pixels::Color;
@@ -5,7 +12,7 @@ use sdl2::pixels::Color;
 use crate::{
     components::{
         AnimatedSprite, Collider, ColliderGroup, Enemy, Floor, Interactable, Light, Player, Pos,
-        Projectile, Prop, Spawner, Wall, CH_HITBOX, CH_NAV, CH_NONE,
+        Projectile, Prop, Spawner, Static, Wall, CH_HITBOX, CH_NAV, CH_NONE,
     },
     math::{Vec2, Vec3},
     Ctx, DepthBuffer, DrawCmd,
@@ -41,6 +48,10 @@ pub fn init(world: &World) {
             spawn_wall(world, tile_to_pos(x, 18));
         }
     }
+
+    spawn_wall(world, tile_to_pos(16, 15));
+    spawn_wall(world, tile_to_pos(16, 16));
+    spawn_wall(world, tile_to_pos(16, 17));
 
     spawn_torch(world, Pos::new(350.0, 570.0));
     spawn_torch(world, Pos::new(600.0, 200.0));
@@ -106,8 +117,8 @@ fn spawn_player(world: &World, pos: Vec2<f32>) {
             hitbox: None,
         },
         &Light {
-            radius: 100,
-            color: Color::RGB(50, 50, 255),
+            radius: 200,
+            color: Color::RGB(255, 255, 255),
         },
     ]);
 }
@@ -172,6 +183,7 @@ fn spawn_floor(world: &World, pos: Pos) -> Entity {
 fn spawn_wall(world: &World, pos: Pos) -> Entity {
     let ctx = world.resource::<Ctx>().unwrap();
     world.spawn(&[
+        &Static {},
         &Wall {},
         &pos,
         &AnimatedSprite::new(
@@ -183,8 +195,8 @@ fn spawn_wall(world: &World, pos: Pos) -> Entity {
         &ColliderGroup {
             nav: Some(Collider::new(
                 (-16, -14, 32, 30),
-                CH_NAV | CH_HITBOX,
                 CH_NAV,
+                CH_NAV | CH_HITBOX,
                 None,
             )),
             hitbox: None,
@@ -265,8 +277,8 @@ fn spawn_bullet(world: &World, pos: Vec2<f32>, velocity_normal: Vec2<f32>) {
         &ColliderGroup {
             nav: Some(Collider::new(
                 (-6, -6, 12, 12),
-                CH_HITBOX,
-                CH_HITBOX,
+                CH_NONE,
+                CH_HITBOX | CH_NAV,
                 Some(|world: &World, me: Entity, _: Entity| {
                     let mut despawn_queue = world
                         .resource::<Ctx>()
@@ -294,14 +306,12 @@ fn spawn_bullet(world: &World, pos: Vec2<f32>, velocity_normal: Vec2<f32>) {
 // ╚══════╝   ╚═╝   ╚══════╝   ╚═╝   ╚══════╝╚═╝     ╚═╝╚══════╝
 
 fn update_player(world: &World) {
-    let ctx = world.resource::<Ctx>().unwrap();
-    let mut player_pos = Pos::zero();
-
     world.run(
         |player: &mut Player,
          pos: &mut Pos,
          colliders: &ColliderGroup,
-         sprite: &mut AnimatedSprite| {
+         sprite: &mut AnimatedSprite,
+         mut ctx: ResMut<Ctx>| {
             if ctx.input.up | ctx.input.down | ctx.input.left | ctx.input.right {
                 sprite.switch_anim(ctx.animations.get("player_walk").unwrap(), 5);
             } else {
@@ -328,7 +338,7 @@ fn update_player(world: &World) {
                 }
             }
 
-            player_pos = *pos;
+            ctx.player_pos = *pos;
 
             if player.can_fire_in > 0 {
                 player.can_fire_in -= 1;
@@ -351,7 +361,14 @@ fn update_player(world: &World) {
                 }
 
                 if trajectory.magnitude() > 0.0 {
-                    spawn_bullet(world, Vec2::new(pos.x, pos.y), trajectory);
+                    spawn_bullet(
+                        world,
+                        Vec2::new(
+                            pos.x + trajectory.normalized().x * 30.,
+                            pos.y + trajectory.normalized().y * 30.,
+                        ),
+                        trajectory,
+                    );
                     player.can_fire_in = player.fire_cooldown;
                 }
             }
@@ -359,9 +376,9 @@ fn update_player(world: &World) {
     );
 
     world.run(
-        |entity: &Entity, interactable: &mut Interactable, pos: &Pos| {
+        |entity: &Entity, interactable: &mut Interactable, pos: &Pos, ctx: Res<Ctx>| {
             if interactable.ticks_left == 0 {
-                if ctx.input.interact && player_pos.distance(pos) < 32.0 {
+                if ctx.input.interact && ctx.player_pos.distance(pos) < 32.0 {
                     (interactable.on_interact)(world, *entity);
                     interactable.ticks_left = interactable.cooldown
                 }
@@ -509,7 +526,15 @@ fn fix_colliders(world: &World) {
 }
 
 fn detect_collisions(world: &World) {
-    fn test(world: &World, e1: &Entity, c1: &mut Collider, e2: &Entity, c2: &Collider) {
+    fn test(
+        world: &World,
+        e1: &Entity,
+        c1: &mut Collider,
+        pos1: &mut Pos,
+        e2: &Entity,
+        c2: &Collider,
+        should_move: bool,
+    ) {
         if *e1 != *e2
             && c1.collides_with & c2.channels != 0
             && c1.bounds.has_intersection(c2.bounds)
@@ -527,17 +552,29 @@ fn detect_collisions(world: &World) {
 
             if d_top < d_bottom && d_top < d_left && d_top < d_right {
                 c1.bottom = true;
+                if should_move && !world.has_component::<Static>(*e1) {
+                    pos1.y -= c1.bounds.bottom() as f32 - c2.bounds.top() as f32 - 1.;
+                }
             } else if d_bottom < d_top && d_bottom < d_left && d_bottom < d_right {
                 c1.top = true;
+                if should_move && !world.has_component::<Static>(*e1) {
+                    pos1.y += c2.bounds.bottom() as f32 - c1.bounds.top() as f32 - 1.;
+                }
             } else if d_left < d_right && d_left < d_top && d_left < d_bottom {
                 c1.right = true;
+                if should_move && !world.has_component::<Static>(*e1) {
+                    pos1.x -= c1.bounds.right() as f32 - c2.bounds.left() as f32 - 1.;
+                }
             } else if d_right < d_left && d_right < d_top && d_right < d_bottom {
                 c1.left = true;
+                if should_move && !world.has_component::<Static>(*e1) {
+                    pos1.x += c2.bounds.right() as f32 - c1.bounds.left() as f32 - 1.;
+                }
             }
         }
     }
 
-    fn test_all(world: &World, e1: &Entity, c1: &mut Collider) {
+    fn test_all(world: &World, e1: &Entity, c1: &mut Collider, pos1: &mut Pos) {
         c1.is_colliding = false;
         c1.left = false;
         c1.right = false;
@@ -546,22 +583,22 @@ fn detect_collisions(world: &World) {
 
         world.run(|e2: &Entity, cg: &mut ColliderGroup| {
             if let Some(c2) = cg.nav.as_ref() {
-                test(world, e1, c1, e2, c2);
+                test(world, e1, c1, pos1, e2, c2, true);
             }
 
             if let Some(c2) = cg.hitbox.as_ref() {
-                test(world, e1, c1, e2, c2);
+                test(world, e1, c1, pos1, e2, c2, false);
             }
         });
     }
 
-    world.run(|e1: &Entity, cg: &mut ColliderGroup| {
+    world.run(|e1: &Entity, pos1: &mut Pos, cg: &mut ColliderGroup| {
         if let Some(c1) = cg.nav.as_mut() {
-            test_all(world, e1, c1);
+            test_all(world, e1, c1, pos1);
         }
 
         if let Some(c1) = cg.hitbox.as_mut() {
-            test_all(world, e1, c1);
+            test_all(world, e1, c1, pos1);
         }
     });
 }

@@ -12,10 +12,12 @@ use std::{
     time::{Duration, Instant},
 };
 
-use ecs::{Entity, Resource, World};
+use components::{ColliderGroup, Wall};
+use ecs::{Entity, Resource, With, World};
 use math::Vec3;
 use sdl2::{
     event::Event,
+    gfx::primitives::DrawRenderer,
     image::{InitFlag, LoadTexture},
     keyboard::{Keycode, Scancode},
     pixels::Color,
@@ -219,18 +221,52 @@ pub struct Input {
 }
 
 pub struct Lightmap {
-    texture: Texture,
+    lights: MaybeUninit<Texture>,
+    // Occlusion mask
+    mask: MaybeUninit<Texture>,
 }
 
 impl Lightmap {
     pub fn new(canvas: &Canvas<Window>, w: u32, h: u32) -> Lightmap {
-        let mut texture = canvas
+        let mut lights = canvas
             .texture_creator()
             .create_texture_target(canvas.default_pixel_format(), w, h)
             .unwrap();
+        lights.set_blend_mode(sdl2::render::BlendMode::Mul);
 
-        texture.set_blend_mode(sdl2::render::BlendMode::Mul);
-        Lightmap { texture }
+        let mut mask = canvas
+            .texture_creator()
+            .create_texture_target(canvas.default_pixel_format(), w, h)
+            .unwrap();
+        mask.set_blend_mode(sdl2::render::BlendMode::Mul);
+
+        Lightmap {
+            lights: MaybeUninit::new(lights),
+            mask: MaybeUninit::new(mask),
+        }
+    }
+
+    pub fn lights(&self) -> Texture {
+        unsafe { self.lights.assume_init_read() }
+    }
+
+    pub fn lights_mut(&self) -> Texture {
+        unsafe { self.lights.assume_init_read() }
+    }
+
+    pub fn mask(&self) -> Texture {
+        unsafe { self.mask.assume_init_read() }
+    }
+
+    pub fn mask_mut(&self) -> Texture {
+        unsafe { self.mask.assume_init_read() }
+    }
+}
+
+impl Drop for Lightmap {
+    fn drop(&mut self) {
+        unsafe { self.lights.assume_init_read().destroy() }
+        unsafe { self.mask.assume_init_read().destroy() }
     }
 }
 
@@ -248,13 +284,11 @@ pub struct Ctx {
     bullet_speed: f32,
     bullet_lifetime: usize,
     player_fire_cooldown: usize,
-    frame_time_avg: u128,
-    update_time_avg: u128,
-    render_time_avg: u128,
     debug_draw_nav_colliders: bool,
     debug_draw_hitboxes: bool,
     debug_draw_centerpoints: bool,
-
+    is_shadows_enabled: bool,
+    player_pos: Pos,
     spawner_entity: Option<Entity>,
 }
 
@@ -267,8 +301,6 @@ pub fn main() {
     let ttf_context = sdl2::ttf::init().map_err(|e| e.to_string()).unwrap();
     let window = video_subsystem
         .window("gaem", 800, 800)
-        // .borderless()
-        // .fullscreen_desktop()
         .position_centered()
         .build()
         .map_err(|e| e.to_string())
@@ -284,7 +316,7 @@ pub fn main() {
     let texture_creator = canvas.texture_creator();
 
     let mut font = ttf_context
-        .load_font("assets/fonts/comic_sans.ttf", 16)
+        .load_font("assets/fonts/vcr_osd_mono.ttf", 18)
         .unwrap();
     font.set_style(sdl2::ttf::FontStyle::NORMAL);
 
@@ -347,7 +379,7 @@ pub fn main() {
             fire_right: false,
             interact: false,
         },
-        player_speed: 2.0,
+        player_speed: 3.0,
         enemy_speed: 1.2,
         bullet_speed: 4.0,
         debug_draw_nav_colliders: false,
@@ -355,10 +387,8 @@ pub fn main() {
         debug_draw_centerpoints: false,
         bullet_lifetime: 60,
         player_fire_cooldown: 20,
-        frame_time_avg: 0,
-        update_time_avg: 0,
-        render_time_avg: 0,
-
+        is_shadows_enabled: false,
+        player_pos: Pos::zero(),
         spawner_entity: None,
     };
 
@@ -390,6 +420,10 @@ pub fn main() {
                     ..
                 } => ctx.debug_draw_centerpoints = !ctx.debug_draw_centerpoints,
                 Event::KeyDown {
+                    keycode: Some(Keycode::F5),
+                    ..
+                } => ctx.is_shadows_enabled = !ctx.is_shadows_enabled,
+                Event::KeyDown {
                     keycode: Some(Keycode::F9),
                     ..
                 } => {
@@ -402,6 +436,11 @@ pub fn main() {
                             sdl2::video::FullscreenType::Off
                         })
                         .unwrap();
+                    ctx.lightmap = Lightmap::new(
+                        &ctx.canvas,
+                        ctx.canvas.window().drawable_size().0,
+                        ctx.canvas.window().drawable_size().1,
+                    )
                 }
                 Event::KeyDown {
                     keycode: Some(Keycode::F12),
@@ -434,29 +473,119 @@ pub fn main() {
         let update_start = Instant::now();
         game::update(&world);
         let end = Instant::now().duration_since(update_start);
-        ctx.update_time_avg = (ctx.update_time_avg + end.as_micros()) / 2;
+        let update_time = end.as_micros();
 
         let render_start = Instant::now();
 
         ctx.canvas
-            .with_texture_canvas(&mut ctx.lightmap.texture, |canvas| {
+            .with_texture_canvas(&mut ctx.lightmap.lights_mut(), |canvas| {
+                // clear lightmap to ambient
                 canvas.set_draw_color(Color::RGB(70, 70, 70));
                 canvas.clear();
-                ctx.light_tex.set_blend_mode(BlendMode::Add);
-                world.run(|light: &mut Light, pos: &Pos| {
-                    ctx.light_tex
-                        .set_color_mod(light.color.r, light.color.g, light.color.b);
-                    canvas
-                        .copy(
-                            &ctx.light_tex,
-                            None,
-                            Rect::from_center(
-                                (pos.x as i32, pos.y as i32),
-                                (light.radius as u32) * 2,
-                                (light.radius as u32) * 2,
-                            ),
-                        )
-                        .unwrap();
+
+                // TODO extract the occlusion pass out because this is unreadable as fuck
+                world.run(|light: &mut Light, lp: &Pos| {
+                    if light.radius > 0 {
+                        if ctx.is_shadows_enabled {
+                            canvas
+                                .with_texture_canvas(&mut ctx.lightmap.mask_mut(), |canvas| {
+                                    // clear occlusion mask
+                                    canvas.set_draw_color(Color::RGB(255, 255, 255));
+                                    canvas.clear();
+
+                                    let light_bounds = Rect::new(
+                                        lp.x as i32 - light.radius as i32,
+                                        lp.y as i32 - light.radius as i32,
+                                        light.radius as u32 * 2,
+                                        light.radius as u32 * 2,
+                                    );
+
+                                    world.run(|cg: &ColliderGroup, _: With<Wall>| {
+                                        if let Some(rect) =
+                                            light_bounds.intersection(cg.nav.unwrap().bounds)
+                                        {
+                                            let dx = lp.x as i32 - rect.center().x;
+                                            let dy = lp.y as i32 - rect.center().y;
+
+                                            let p0 = if dx.signum() == dy.signum() {
+                                                rect.bottom_left()
+                                            } else {
+                                                rect.top_left()
+                                            };
+
+                                            let p1 = if dx.signum() == dy.signum() {
+                                                rect.top_right()
+                                            } else {
+                                                rect.bottom_right()
+                                            };
+
+                                            let theta_0 =
+                                                f32::atan2(lp.y - p0.y as f32, lp.x - p0.x as f32);
+
+                                            let theta_1 =
+                                                f32::atan2(lp.y - p1.y as f32, lp.x - p1.x as f32);
+
+                                            // TODO should calculate p0' and p1' on the tangent line at p_t
+                                            let p0_prime = (
+                                                lp.x as i32
+                                                    - (theta_0.cos() * light.radius as f32 * 2.)
+                                                        as i32,
+                                                lp.y as i32
+                                                    - (theta_0.sin() * light.radius as f32 * 2.)
+                                                        as i32,
+                                            );
+
+                                            let p1_prime = (
+                                                lp.x as i32
+                                                    - (theta_1.cos() * light.radius as f32 * 2.)
+                                                        as i32,
+                                                lp.y as i32
+                                                    - (theta_1.sin() * light.radius as f32 * 2.)
+                                                        as i32,
+                                            );
+
+                                            // TODO filled_trigon x2 would perhaps be faster?
+                                            canvas
+                                                .filled_polygon(
+                                                    &[
+                                                        p0.x as i16,
+                                                        p1.x as i16,
+                                                        p1_prime.0 as i16,
+                                                        p0_prime.0 as i16,
+                                                    ],
+                                                    &[
+                                                        p0.y as i16,
+                                                        p1.y as i16,
+                                                        p1_prime.1 as i16,
+                                                        p0_prime.1 as i16,
+                                                    ],
+                                                    Color::RGB(0, 0, 0),
+                                                )
+                                                .unwrap();
+                                        }
+                                    });
+                                })
+                                .unwrap();
+                        }
+
+                        ctx.light_tex.set_blend_mode(BlendMode::Add);
+                        ctx.light_tex
+                            .set_color_mod(light.color.r, light.color.g, light.color.b);
+                        canvas
+                            .copy(
+                                &ctx.light_tex,
+                                None,
+                                Rect::from_center(
+                                    (lp.x as i32, lp.y as i32),
+                                    (light.radius as u32) * 2,
+                                    (light.radius as u32) * 2,
+                                ),
+                            )
+                            .unwrap();
+                    }
+                    if ctx.is_shadows_enabled {
+                        canvas.copy(&ctx.lightmap.mask(), None, None).unwrap();
+                    }
                 });
             })
             .unwrap();
@@ -466,12 +595,11 @@ pub fn main() {
 
         game::render(&world);
 
-        ctx.canvas.copy(&ctx.lightmap.texture, None, None).unwrap();
+        ctx.canvas.copy(&ctx.lightmap.lights(), None, None).unwrap();
 
         let end = Instant::now().duration_since(render_start);
-        ctx.render_time_avg = (ctx.render_time_avg + end.as_micros()) / 2;
-
-        ctx.frame_time_avg = ctx.update_time_avg + ctx.render_time_avg;
+        let render_time = end.as_micros();
+        let frame_time = update_time + render_time;
 
         let sleep_duration = Duration::new(0, 1_000_000_000u32 / 60)
             .saturating_sub(Instant::now().duration_since(update_start));
@@ -486,11 +614,11 @@ pub fn main() {
         let surface = font
             .render(
                 format!(
-                    "Mem: {:.2} MB | Frame time: {}us | Update time: {}us | Render time: {}us",
+                    "MEM: {:.2} MB | FRAME: {:.2}ms | UPDATE: {:.2}ms | RENDER: {:.2}ms",
                     mem_usage as f32 / (1024 * 1204) as f32,
-                    ctx.frame_time_avg,
-                    ctx.update_time_avg,
-                    ctx.render_time_avg
+                    frame_time as f32 / 1000.,
+                    update_time as f32 / 1000.,
+                    render_time as f32 / 1000.
                 )
                 .as_str(),
             )

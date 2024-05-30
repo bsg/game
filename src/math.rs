@@ -1,8 +1,10 @@
 // TODO tests
 
-use std::ops::{Add, DivAssign, Mul, MulAssign};
+use std::ops::{Add, Div, DivAssign, Mul, MulAssign};
 
-pub trait Scalar<S>: Add<Output = S> + Mul<S, Output = S> + MulAssign + DivAssign + Copy + Sized {
+pub trait Scalar<S>:
+    Add<Output = S> + Mul<S, Output = S> + Div<S, Output = S> + MulAssign + DivAssign + Copy + Sized
+{
     fn zero() -> S;
     fn sqrt(self) -> S;
     fn powi(self, n: i32) -> S;
@@ -22,7 +24,6 @@ impl Scalar<f32> for f32 {
         f32::sqrt(self)
     }
 }
-
 
 #[allow(dead_code)]
 impl Scalar<i32> for i32 {
@@ -110,6 +111,13 @@ impl<T: Scalar<T>> Vec2<T> {
     pub fn normalize(&mut self) {
         self.x /= self.magnitude();
         self.y /= self.magnitude();
+    }
+
+    pub fn normalized(&mut self) -> Self {
+        Self {
+            x: self.x / self.magnitude(),
+            y: self.y / self.magnitude(),
+        }
     }
 
     pub fn scale(&mut self, scale: T) {
