@@ -222,7 +222,6 @@ pub struct Input {
 
 pub struct Lightmap {
     lights: MaybeUninit<Texture>,
-    // Occlusion mask
     mask: MaybeUninit<Texture>,
 }
 
@@ -289,7 +288,20 @@ pub struct Ctx {
     debug_draw_centerpoints: bool,
     is_shadows_enabled: bool,
     player_pos: Pos,
+    room_size: (u16, u16),
     spawner_entity: Option<Entity>,
+}
+
+impl Ctx {
+    pub fn camera_pos(&self) -> (i32, i32) {
+        let window_w = self.canvas.window().size().0 as i32;
+        let window_h = self.canvas.window().size().1 as i32;
+
+        (
+            window_w / 2 - (self.player_pos.x as i32).clamp(window_w / 2, self.room_size.0 as i32),
+            window_h / 2 - (self.player_pos.y as i32).clamp(window_h / 2, self.room_size.1 as i32),
+        )
+    }
 }
 
 pub fn main() {
@@ -389,6 +401,7 @@ pub fn main() {
         player_fire_cooldown: 20,
         is_shadows_enabled: false,
         player_pos: Pos::zero(),
+        room_size: (1024, 1024),
         spawner_entity: None,
     };
 
@@ -479,12 +492,17 @@ pub fn main() {
 
         ctx.canvas
             .with_texture_canvas(&mut ctx.lightmap.lights_mut(), |canvas| {
+                let camera_pos = world.resource::<Ctx>().unwrap().camera_pos();
+
                 // clear lightmap to ambient
                 canvas.set_draw_color(Color::RGB(70, 70, 70));
                 canvas.clear();
 
                 // TODO extract the occlusion pass out because this is unreadable as fuck
                 world.run(|light: &mut Light, lp: &Pos| {
+                    let x = lp.x + camera_pos.0 as f32;
+                    let y = lp.y + camera_pos.1 as f32;
+
                     if light.radius > 0 {
                         if ctx.is_shadows_enabled {
                             canvas
@@ -494,8 +512,8 @@ pub fn main() {
                                     canvas.clear();
 
                                     let light_bounds = Rect::new(
-                                        lp.x as i32 - light.radius as i32,
-                                        lp.y as i32 - light.radius as i32,
+                                        x as i32 - light.radius as i32,
+                                        y as i32 - light.radius as i32,
                                         light.radius as u32 * 2,
                                         light.radius as u32 * 2,
                                     );
@@ -504,8 +522,8 @@ pub fn main() {
                                         if let Some(rect) =
                                             light_bounds.intersection(cg.nav.unwrap().bounds)
                                         {
-                                            let dx = lp.x as i32 - rect.center().x;
-                                            let dy = lp.y as i32 - rect.center().y;
+                                            let dx = x as i32 - rect.center().x;
+                                            let dy = y as i32 - rect.center().y;
 
                                             let p0 = if dx.signum() == dy.signum() {
                                                 rect.bottom_left()
@@ -520,26 +538,26 @@ pub fn main() {
                                             };
 
                                             let theta_0 =
-                                                f32::atan2(lp.y - p0.y as f32, lp.x - p0.x as f32);
+                                                f32::atan2(y - p0.y as f32, x - p0.x as f32);
 
                                             let theta_1 =
-                                                f32::atan2(lp.y - p1.y as f32, lp.x - p1.x as f32);
+                                                f32::atan2(y - p1.y as f32, x - p1.x as f32);
 
                                             // TODO should calculate p0' and p1' on the tangent line at p_t
                                             let p0_prime = (
-                                                lp.x as i32
+                                                x as i32
                                                     - (theta_0.cos() * light.radius as f32 * 2.)
                                                         as i32,
-                                                lp.y as i32
+                                                y as i32
                                                     - (theta_0.sin() * light.radius as f32 * 2.)
                                                         as i32,
                                             );
 
                                             let p1_prime = (
-                                                lp.x as i32
+                                                x as i32
                                                     - (theta_1.cos() * light.radius as f32 * 2.)
                                                         as i32,
-                                                lp.y as i32
+                                                y as i32
                                                     - (theta_1.sin() * light.radius as f32 * 2.)
                                                         as i32,
                                             );
@@ -576,7 +594,7 @@ pub fn main() {
                                 &ctx.light_tex,
                                 None,
                                 Rect::from_center(
-                                    (lp.x as i32, lp.y as i32),
+                                    (x as i32, y as i32),
                                     (light.radius as u32) * 2,
                                     (light.radius as u32) * 2,
                                 ),

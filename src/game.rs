@@ -1,4 +1,3 @@
-// TODO camera
 // TODO serializable entity definitions
 // TODO serializable room definitions
 // TODO how do we wanna scale sprites around entity centerpoint?
@@ -29,8 +28,8 @@ fn tile_to_pos(x: i32, y: i32) -> Pos {
 }
 
 pub fn init(world: &World) {
-    for x in 0..32 {
-        for y in 0..32 {
+    for x in 0..64 {
+        for y in 0..64 {
             spawn_floor(world, tile_to_pos(x, y));
         }
     }
@@ -318,23 +317,29 @@ fn update_player(world: &World) {
                 sprite.switch_anim(ctx.animations.get("player_idle").unwrap(), 30);
             }
 
+            let speed = if ctx.input.shift {
+                8.
+            } else {
+                ctx.player_speed
+            };
+
             let collider = colliders.nav.as_ref().unwrap();
             if ctx.input.up && !collider.top {
-                pos.y -= ctx.player_speed;
+                pos.y -= speed;
             }
             if ctx.input.down && !collider.bottom {
-                pos.y += ctx.player_speed;
+                pos.y += speed;
             }
             if ctx.input.left {
                 sprite.flip_horizontal = false;
                 if !collider.left {
-                    pos.x -= ctx.player_speed;
+                    pos.x -= speed;
                 }
             }
             if ctx.input.right {
                 sprite.flip_horizontal = true;
                 if !collider.right {
-                    pos.x += ctx.player_speed;
+                    pos.x += speed;
                 }
             }
 
@@ -611,6 +616,9 @@ fn detect_collisions(world: &World) {
 // ╚═╝  ╚═╝╚══════╝╚═╝  ╚═══╝╚═════╝ ╚══════╝╚═╝  ╚═╝
 
 pub fn render(world: &World) {
+    let ctx = world.resource::<Ctx>().unwrap();
+    let camera_pos = ctx.camera_pos();    
+
     #[inline(always)]
     fn update_anim(sprite: &mut AnimatedSprite, num_frames: usize) {
         sprite.ticks += 1;
@@ -625,7 +633,7 @@ pub fn render(world: &World) {
     }
 
     #[inline(always)]
-    fn draw(ctx: &mut Ctx, anim: &mut AnimatedSprite, pos: &Pos) {
+    fn draw(ctx: &mut Ctx, anim: &mut AnimatedSprite, pos: &Pos, camera_pos: (i32, i32)) {
         let frames = ctx.animations.get_frames(anim.anim());
         let sprite = frames[anim.frame as usize];
 
@@ -633,8 +641,8 @@ pub fn render(world: &World) {
             &mut ctx.canvas,
             sprite,
             (
-                pos.x as i32 + anim.x_offset as i32,
-                pos.y as i32 + anim.y_offset as i32,
+                pos.x as i32 + anim.x_offset as i32 + camera_pos.0,
+                pos.y as i32 + anim.y_offset as i32 + camera_pos.1,
             ),
             0.,
             anim.flip_horizontal,
@@ -645,14 +653,20 @@ pub fn render(world: &World) {
     }
 
     #[inline(always)]
-    fn push(ctx: &Ctx, depth_buffer: &mut DepthBuffer, anim: &mut AnimatedSprite, pos: &Pos) {
+    fn push(
+        ctx: &Ctx,
+        depth_buffer: &mut DepthBuffer,
+        anim: &mut AnimatedSprite,
+        pos: &Pos,
+        camera_pos: (i32, i32),
+    ) {
         let frames = ctx.animations.get_frames(anim.anim());
         let sprite = frames[anim.frame as usize];
         depth_buffer.push(DrawCmd {
             sprite,
             pos: Vec3::<i32> {
-                x: pos.x.round() as i32 + anim.x_offset as i32,
-                y: pos.y.round() as i32 + anim.y_offset as i32,
+                x: pos.x.round() as i32 + anim.x_offset as i32 + camera_pos.0,
+                y: pos.y.round() as i32 + anim.y_offset as i32 + camera_pos.1,
                 z: pos.y.round() as i32 + anim.z_offset.map_or(0, |o| o) as i32,
             },
             flip_horizontal: anim.flip_horizontal,
@@ -663,13 +677,13 @@ pub fn render(world: &World) {
 
     world.run(
         |pos: &mut Pos, sprite: &mut AnimatedSprite, mut ctx: ResMut<Ctx>, _: With<Floor>| {
-            draw(&mut ctx, sprite, pos);
+            draw(&mut ctx, sprite, pos, camera_pos);
         },
     );
 
     world.run(
         |pos: &mut Pos, sprite: &mut AnimatedSprite, mut ctx: ResMut<Ctx>, _: With<Prop>| {
-            draw(&mut ctx, sprite, pos);
+            draw(&mut ctx, sprite, pos, camera_pos);
         },
     );
 
@@ -680,7 +694,7 @@ pub fn render(world: &World) {
          ctx: Res<Ctx>,
          _: Without<Floor>,
          _: Without<Prop>| {
-            push(&ctx, &mut depth_buffer, sprite, pos);
+            push(&ctx, &mut depth_buffer, sprite, pos, camera_pos);
         },
     );
 
