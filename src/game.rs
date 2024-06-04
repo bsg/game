@@ -703,18 +703,21 @@ pub fn render(world: &World) {
     depth_buffer.draw_to_canvas(&mut ctx.canvas, &ctx.spritesheet);
 
     if ctx.debug_draw_centerpoints {
-        world.run(|pos: &Pos, mut ctx: ResMut<Ctx>, _: Without<Floor>| {
+        world.run(|pos: &Pos, _: Without<Floor>| {
+            let x = pos.x + ctx.camera_pos().0 as f32;
+            let y = pos.y + ctx.camera_pos().1 as f32;
+
             ctx.canvas.set_draw_color(Color::RGBA(0, 255, 0, 255));
             ctx.canvas
                 .draw_line(
-                    ((pos.x - 2.) as i32, pos.y as i32),
-                    ((pos.x + 2.) as i32, pos.y as i32),
+                    ((x - 2.) as i32, y as i32),
+                    ((x + 2.) as i32, y as i32),
                 )
                 .unwrap();
             ctx.canvas
                 .draw_line(
-                    (pos.x as i32, (pos.y - 2.) as i32),
-                    (pos.x as i32, (pos.y + 2.) as i32),
+                    (x as i32, (y - 2.) as i32),
+                    (x as i32, (y + 2.) as i32),
                 )
                 .unwrap();
         });
@@ -725,24 +728,32 @@ pub fn render(world: &World) {
         world.run(|cg: &ColliderGroup| {
             if ctx.debug_draw_nav_colliders {
                 if let Some(collider) = cg.nav.as_ref() {
+                    let mut rect = collider.bounds;
+                    rect.x += ctx.camera_pos().0;
+                    rect.y += ctx.camera_pos().1;
+
                     if collider.is_colliding {
                         ctx.canvas.set_draw_color(Color::RGB(255, 0, 0));
-                        ctx.canvas.draw_rect(collider.bounds).unwrap();
+                        ctx.canvas.draw_rect(rect).unwrap();
                     } else {
                         ctx.canvas.set_draw_color(Color::RGB(0, 255, 0));
-                        ctx.canvas.draw_rect(collider.bounds).unwrap();
+                        ctx.canvas.draw_rect(rect).unwrap();
                     }
                 }
             }
 
             if ctx.debug_draw_hitboxes {
                 if let Some(collider) = cg.hitbox.as_ref() {
+                    let mut rect = collider.bounds;
+                    rect.x += ctx.camera_pos().0;
+                    rect.y += ctx.camera_pos().1;
+
                     if collider.is_colliding {
                         ctx.canvas.set_draw_color(Color::RGB(255, 0, 0));
-                        ctx.canvas.draw_rect(collider.bounds).unwrap();
+                        ctx.canvas.draw_rect(rect).unwrap();
                     } else {
                         ctx.canvas.set_draw_color(Color::RGB(255, 255, 0));
-                        ctx.canvas.draw_rect(collider.bounds).unwrap();
+                        ctx.canvas.draw_rect(rect).unwrap();
                     }
                 }
             }
