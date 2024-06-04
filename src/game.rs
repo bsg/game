@@ -34,7 +34,7 @@ pub fn init(world: &World) {
         }
     }
 
-    for x in 0..32 {
+    for x in 0..64 {
         spawn_wall(world, tile_to_pos(x, 1));
 
         if x != 7 && x != 8 {
@@ -42,7 +42,7 @@ pub fn init(world: &World) {
         }
     }
 
-    for x in 0..32 {
+    for x in 0..64 {
         if x != 12 {
             spawn_wall(world, tile_to_pos(x, 18));
         }
@@ -57,7 +57,7 @@ pub fn init(world: &World) {
 
     world.resource_mut::<Ctx>().unwrap().spawner_entity =
         Some(spawn_spawner(world, Pos::new(540.0, 640.0)));
-
+        
     spawn_lever(
         world,
         Pos::new(200.0, 200.0),
@@ -617,7 +617,7 @@ fn detect_collisions(world: &World) {
 
 pub fn render(world: &World) {
     let ctx = world.resource::<Ctx>().unwrap();
-    let camera_pos = ctx.camera_pos();    
+    let camera_pos = ctx.camera_pos();
 
     #[inline(always)]
     fn update_anim(sprite: &mut AnimatedSprite, num_frames: usize) {

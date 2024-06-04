@@ -286,7 +286,7 @@ pub struct Ctx {
     debug_draw_nav_colliders: bool,
     debug_draw_hitboxes: bool,
     debug_draw_centerpoints: bool,
-    is_shadows_enabled: bool,
+    shadows_enabled: bool,
     player_pos: Pos,
     room_size: (u16, u16),
     spawner_entity: Option<Entity>,
@@ -298,8 +298,12 @@ impl Ctx {
         let window_h = self.canvas.window().size().1 as i32;
 
         (
-            window_w / 2 - (self.player_pos.x as i32).clamp(window_w / 2, self.room_size.0 as i32),
-            window_h / 2 - (self.player_pos.y as i32).clamp(window_h / 2, self.room_size.1 as i32),
+            window_w / 2
+                - (self.player_pos.x as i32)
+                    .clamp(window_w / 2, self.room_size.0 as i32 - window_w / 2),
+            window_h / 2
+                - (self.player_pos.y as i32)
+                    .clamp(window_h / 2, self.room_size.1 as i32 - window_h / 2),
         )
     }
 }
@@ -399,9 +403,9 @@ pub fn main() {
         debug_draw_centerpoints: false,
         bullet_lifetime: 60,
         player_fire_cooldown: 20,
-        is_shadows_enabled: false,
+        shadows_enabled: false,
         player_pos: Pos::zero(),
-        room_size: (1024, 1024),
+        room_size: (2048, 2048),
         spawner_entity: None,
     };
 
@@ -435,7 +439,7 @@ pub fn main() {
                 Event::KeyDown {
                     keycode: Some(Keycode::F5),
                     ..
-                } => ctx.is_shadows_enabled = !ctx.is_shadows_enabled,
+                } => ctx.shadows_enabled = !ctx.shadows_enabled,
                 Event::KeyDown {
                     keycode: Some(Keycode::F9),
                     ..
@@ -504,7 +508,7 @@ pub fn main() {
                     let y = lp.y + camera_pos.1 as f32;
 
                     if light.radius > 0 {
-                        if ctx.is_shadows_enabled {
+                        if ctx.shadows_enabled {
                             canvas
                                 .with_texture_canvas(&mut ctx.lightmap.mask_mut(), |canvas| {
                                     // clear occlusion mask
@@ -601,7 +605,7 @@ pub fn main() {
                             )
                             .unwrap();
                     }
-                    if ctx.is_shadows_enabled {
+                    if ctx.shadows_enabled {
                         canvas.copy(&ctx.lightmap.mask(), None, None).unwrap();
                     }
                 });
