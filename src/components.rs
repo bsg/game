@@ -1,6 +1,6 @@
 use std::ops::{Deref, DerefMut};
 
-use crate::{math::Vec2, AnimationId};
+use crate::{math::Vec2, AnimationId, Sprite};
 use ecs::{Component, Entity, World};
 use sdl2::{pixels::Color, rect::Rect};
 
@@ -170,9 +170,7 @@ pub struct Prop {}
 
 #[derive(Component)]
 pub struct Interactable {
-    pub cooldown: usize, // TODO won't need once we have just_pressed
     pub on_interact: fn(&World, Entity),
-    pub ticks_left: usize,
 }
 
 #[derive(Component)]
@@ -186,3 +184,147 @@ pub struct Spawner {
 
 #[derive(Component)]
 pub struct Static {}
+
+pub trait Item {
+    fn name(&self) -> &'static str;
+    fn sprite(&self) -> Sprite;
+    fn tick(&self);
+}
+
+pub struct PerfectlyGenericItem {}
+impl Item for PerfectlyGenericItem {
+    fn name(&self) -> &'static str {
+        "perfectly_generic_item"
+    }
+
+    fn sprite(&self) -> Sprite {
+        (14, 0, 1, 1).into()
+    }
+
+    fn tick(&self) {
+        todo!()
+    }
+}
+
+pub struct TestItem {}
+impl Item for TestItem {
+    fn name(&self) -> &'static str {
+        "test_item"
+    }
+
+    fn sprite(&self) -> Sprite {
+        (10, 0, 1, 1).into()
+    }
+
+    fn tick(&self) {
+        todo!()
+    }
+}
+
+pub struct Inventory {
+    items: [Option<&'static dyn Item>; 8],
+    num_items: u16,
+    active_item_idx: u16,
+}
+
+// FIXME awful everything
+impl Inventory {
+    pub fn new() -> Self {
+        Inventory {
+            items: [None; 8],
+            num_items: 0,
+            active_item_idx: 0,
+        }
+    }
+
+    pub fn insert(&mut self, item: &'static dyn Item) -> bool {
+        if self.num_items < 8 {
+            for slot in self.items.iter_mut() {
+                if slot.is_none() {
+                    let _ = slot.insert(item);
+                    self.num_items += 1;
+                    return true;
+                }
+            }
+            false
+        } else {
+            false
+        }
+    }
+
+    pub fn take(&mut self, name: &'static str) -> Option<&'static dyn Item> {
+        if self.num_items > 0 {
+            for mut slot in self.items {
+                if let Some(item) = slot {
+                    if item.name() == name {
+                        self.num_items -= 1;
+                        return slot.take();
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    pub fn has_item(&self, name: &'static str) -> bool {
+        if self.num_items > 0 {
+            for item in self.items.into_iter().flatten() {
+                if item.name() == name {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    pub fn active_item(&self) -> Option<&dyn Item> {
+        self.items[self.active_item_idx as usize]
+    }
+
+    pub fn tick(&mut self) {
+        for item in self.items.iter_mut().flatten() {
+            item.tick();
+        }
+    }
+
+    pub fn set_active(&mut self, idx: u16) {
+        self.active_item_idx = idx;
+    }
+
+    pub fn set_active_offset(&mut self, offset: i16) {
+        let mut i = 0;
+        if offset >= 0 {
+            self.active_item_idx = (self.active_item_idx as i16 + offset) as u16 % 8;
+            while i < 8 && self.items[self.active_item_idx as usize].is_none() {
+                i += 1;
+                self.active_item_idx = (self.active_item_idx + 1) % 8;
+            }
+        } else {
+            self.active_item_idx = (self.active_item_idx as i16 + 8 + offset) as u16 % 8;
+            while i < 8 && self.items[self.active_item_idx as usize].is_none() {
+                i += 1;
+                self.active_item_idx = (self.active_item_idx - 1) % 8;
+            }
+        }
+    }
+
+    /// Get the item with offset relative to active item
+    pub fn get_relative(&self, offset: isize) -> Option<&dyn Item> {
+        let mut i = 0;
+        if offset >= 0 {
+            let mut idx = (self.active_item_idx as isize + offset % 8) as usize;
+            while i < 8 && self.items[idx % 8].is_none() {
+                i += 1;
+                idx += 1;
+            }
+            self.items[idx % 8]
+        } else {
+            let mut idx = (self.active_item_idx as isize + 8 + offset) as usize % 8;
+            while i < 8 && self.items[idx % 8].is_none() {
+                i += 1;
+                idx -= 1;
+            }
+            self.items[idx % 8]
+        }
+    }
+}

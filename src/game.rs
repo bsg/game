@@ -10,8 +10,8 @@ use sdl2::pixels::Color;
 
 use crate::{
     components::{
-        AnimatedSprite, Collider, ColliderGroup, Enemy, Floor, Interactable, Light, Player, Pos,
-        Projectile, Prop, Spawner, Static, Wall, CH_HITBOX, CH_NAV, CH_NONE,
+        AnimatedSprite, Collider, ColliderGroup, Enemy, Floor, Interactable, Inventory, Light,
+        Player, Pos, Projectile, Prop, Spawner, Static, Wall, CH_HITBOX, CH_NAV, CH_NONE,
     },
     math::{Vec2, Vec3},
     Ctx, DepthBuffer, DrawCmd,
@@ -57,7 +57,7 @@ pub fn init(world: &World) {
 
     world.resource_mut::<Ctx>().unwrap().spawner_entity =
         Some(spawn_spawner(world, Pos::new(540.0, 640.0)));
-        
+
     spawn_lever(
         world,
         Pos::new(200.0, 200.0),
@@ -132,11 +132,7 @@ fn spawn_lever(world: &World, pos: Pos, on_interact: fn(&World, Entity)) {
             ctx.animations.get("lever").unwrap(),
             None,
         ),
-        &Interactable {
-            cooldown: 10,
-            on_interact,
-            ticks_left: 0,
-        },
+        &Interactable { on_interact },
     ]);
 }
 
@@ -311,32 +307,36 @@ fn update_player(world: &World) {
          colliders: &ColliderGroup,
          sprite: &mut AnimatedSprite,
          mut ctx: ResMut<Ctx>| {
-            if ctx.input.up | ctx.input.down | ctx.input.left | ctx.input.right {
+            if ctx.input.pressed.up
+                | ctx.input.pressed.down
+                | ctx.input.pressed.left
+                | ctx.input.pressed.right
+            {
                 sprite.switch_anim(ctx.animations.get("player_walk").unwrap(), 5);
             } else {
                 sprite.switch_anim(ctx.animations.get("player_idle").unwrap(), 30);
             }
 
-            let speed = if ctx.input.shift {
+            let speed = if ctx.input.pressed.shift {
                 8.
             } else {
                 ctx.player_speed
             };
 
             let collider = colliders.nav.as_ref().unwrap();
-            if ctx.input.up && !collider.top {
+            if ctx.input.pressed.up && !collider.top {
                 pos.y -= speed;
             }
-            if ctx.input.down && !collider.bottom {
+            if ctx.input.pressed.down && !collider.bottom {
                 pos.y += speed;
             }
-            if ctx.input.left {
+            if ctx.input.pressed.left {
                 sprite.flip_horizontal = false;
                 if !collider.left {
                     pos.x -= speed;
                 }
             }
-            if ctx.input.right {
+            if ctx.input.pressed.right {
                 sprite.flip_horizontal = true;
                 if !collider.right {
                     pos.x += speed;
@@ -352,16 +352,16 @@ fn update_player(world: &World) {
             if player.can_fire_in == 0 {
                 let mut trajectory = Vec2::zero();
 
-                if ctx.input.fire_right {
+                if ctx.input.pressed.fire_right {
                     trajectory.x += 1.0;
                 }
-                if ctx.input.fire_left {
+                if ctx.input.pressed.fire_left {
                     trajectory.x -= 1.0;
                 }
-                if ctx.input.fire_up {
+                if ctx.input.pressed.fire_up {
                     trajectory.y -= 1.0;
                 }
-                if ctx.input.fire_down {
+                if ctx.input.pressed.fire_down {
                     trajectory.y += 1.0;
                 }
 
@@ -377,18 +377,21 @@ fn update_player(world: &World) {
                     player.can_fire_in = player.fire_cooldown;
                 }
             }
+
+            if ctx.input.justPressed.q {
+                ctx.player_inventory.set_active_offset(-1)
+            }
+
+            if ctx.input.justPressed.e {
+                ctx.player_inventory.set_active_offset(1)
+            }
         },
     );
 
     world.run(
         |entity: &Entity, interactable: &mut Interactable, pos: &Pos, ctx: Res<Ctx>| {
-            if interactable.ticks_left == 0 {
-                if ctx.input.interact && ctx.player_pos.distance(pos) < 32.0 {
-                    (interactable.on_interact)(world, *entity);
-                    interactable.ticks_left = interactable.cooldown
-                }
-            } else {
-                interactable.ticks_left -= 1;
+            if ctx.input.justPressed.interact && ctx.player_pos.distance(pos) < 32.0 {
+                (interactable.on_interact)(world, *entity);
             }
         },
     );
@@ -709,19 +712,75 @@ pub fn render(world: &World) {
 
             ctx.canvas.set_draw_color(Color::RGBA(0, 255, 0, 255));
             ctx.canvas
-                .draw_line(
-                    ((x - 2.) as i32, y as i32),
-                    ((x + 2.) as i32, y as i32),
-                )
+                .draw_line(((x - 2.) as i32, y as i32), ((x + 2.) as i32, y as i32))
                 .unwrap();
             ctx.canvas
-                .draw_line(
-                    (x as i32, (y - 2.) as i32),
-                    (x as i32, (y + 2.) as i32),
-                )
+                .draw_line((x as i32, (y - 2.) as i32), (x as i32, (y + 2.) as i32))
                 .unwrap();
         });
     }
+
+    ctx.canvas
+        .with_texture_canvas(&mut ctx.ui_tex, |canvas| {
+            canvas.set_draw_color(Color::RGB(0, 0, 0));
+            canvas.clear();
+
+            if let Some(item) = ctx.player_inventory.get_relative(-1) {
+                ctx.spritesheet.draw_to_canvas(
+                    canvas,
+                    item.sprite(),
+                    (
+                        canvas.viewport().width() as i32 / 2 - 58,
+                        canvas.viewport().height() as i32 - 40,
+                    ),
+                    0.,
+                    false,
+                    false,
+                )
+            }
+
+            if let Some(item) = ctx.player_inventory.active_item() {
+                ctx.spritesheet.draw_to_canvas(
+                    canvas,
+                    item.sprite(),
+                    (
+                        canvas.viewport().width() as i32 / 2 - 16,
+                        canvas.viewport().height() as i32 - 40,
+                    ),
+                    0.,
+                    false,
+                    false,
+                )
+            }
+
+            if let Some(item) = ctx.player_inventory.get_relative(1) {
+                ctx.spritesheet.draw_to_canvas(
+                    canvas,
+                    item.sprite(),
+                    (
+                        canvas.viewport().width() as i32 / 2 + 28,
+                        canvas.viewport().height() as i32 - 40,
+                    ),
+                    0.,
+                    false,
+                    false,
+                )
+            }
+
+            canvas.set_draw_color(Color::RGB(255, 255, 255));
+            ctx.spritesheet.draw_to_canvas(
+                canvas,
+                ctx.ui_active_item_bg,
+                (
+                    canvas.viewport().width() as i32 / 2 - 16,
+                    canvas.viewport().height() as i32 - 40,
+                ),
+                0.,
+                false,
+                false,
+            );
+        })
+        .unwrap();
 
     // DEBUG
     if ctx.debug_draw_nav_colliders || ctx.debug_draw_hitboxes {

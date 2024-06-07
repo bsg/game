@@ -12,7 +12,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use components::{ColliderGroup, Wall};
+use components::{ColliderGroup, Inventory, PerfectlyGenericItem, TestItem, Wall};
 use ecs::{Entity, Resource, With, World};
 use math::Vec3;
 use sdl2::{
@@ -207,7 +207,7 @@ impl DepthBuffer {
     }
 }
 
-pub struct Input {
+pub struct InputState {
     pub up: bool,
     pub down: bool,
     pub left: bool,
@@ -218,6 +218,13 @@ pub struct Input {
     pub fire_left: bool,
     pub fire_right: bool,
     pub interact: bool,
+    pub q: bool,
+    pub e: bool,
+}
+
+pub struct Input {
+    pressed: InputState,
+    justPressed: InputState,
 }
 
 pub struct Lightmap {
@@ -275,6 +282,8 @@ pub struct Ctx {
     spritesheet: Spritesheet,
     animations: AnimationRepository,
     light_tex: Texture,
+    ui_tex: Texture,
+    ui_active_item_bg: Sprite,
     lightmap: Lightmap,
     despawn_queue: RwLock<Vec<Entity>>,
     input: Input,
@@ -289,6 +298,7 @@ pub struct Ctx {
     shadows_enabled: bool,
     player_pos: Pos,
     room_size: (u16, u16),
+    player_inventory: Inventory,
     spawner_entity: Option<Entity>,
 }
 
@@ -370,12 +380,25 @@ pub fn main() {
 
     animations.push("spawner", &[(9, 0, 1, 1).into()]);
 
-    let ctx = Ctx {
+    let mut ctx = Ctx {
         despawn_queue: RwLock::new(Vec::new()),
         light_tex: texture_creator
             .load_texture("assets/textures/light.png")
             .unwrap(),
-        lightmap: Lightmap::new(&canvas, 800, 800),
+        ui_tex: texture_creator
+            .create_texture(
+                None,
+                sdl2::render::TextureAccess::Target,
+                canvas.window().drawable_size().0,
+                canvas.window().drawable_size().1,
+            )
+            .unwrap(),
+        ui_active_item_bg: (13, 0, 1, 1).into(),
+        lightmap: Lightmap::new(
+            &canvas,
+            canvas.window().drawable_size().0,
+            canvas.window().drawable_size().1,
+        ),
         spritesheet: Spritesheet::new_from_file(
             &texture_creator,
             "assets/textures/spritesheet.png",
@@ -384,16 +407,34 @@ pub fn main() {
         animations,
         canvas,
         input: Input {
-            up: false,
-            down: false,
-            left: false,
-            right: false,
-            shift: false,
-            fire_up: false,
-            fire_down: false,
-            fire_left: false,
-            fire_right: false,
-            interact: false,
+            pressed: InputState {
+                up: false,
+                down: false,
+                left: false,
+                right: false,
+                shift: false,
+                fire_up: false,
+                fire_down: false,
+                fire_left: false,
+                fire_right: false,
+                interact: false,
+                q: false,
+                e: false,
+            },
+            justPressed: InputState {
+                up: false,
+                down: false,
+                left: false,
+                right: false,
+                shift: false,
+                fire_up: false,
+                fire_down: false,
+                fire_left: false,
+                fire_right: false,
+                interact: false,
+                q: false,
+                e: false,
+            },
         },
         player_speed: 3.0,
         enemy_speed: 1.2,
@@ -406,8 +447,15 @@ pub fn main() {
         shadows_enabled: false,
         player_pos: Pos::zero(),
         room_size: (2048, 2048),
+        player_inventory: Inventory::new(),
         spawner_entity: None,
     };
+
+    ctx.ui_tex.set_blend_mode(BlendMode::Add);
+
+    assert!(ctx.player_inventory.insert(&TestItem {}));
+    assert!(ctx.player_inventory.insert(&PerfectlyGenericItem {}));
+    assert!(ctx.player_inventory.insert(&TestItem {}));
 
     world.add_resource(ctx);
     world.add_resource(DepthBuffer::new());
@@ -457,7 +505,18 @@ pub fn main() {
                         &ctx.canvas,
                         ctx.canvas.window().drawable_size().0,
                         ctx.canvas.window().drawable_size().1,
-                    )
+                    );
+                    ctx.ui_tex = ctx
+                        .canvas
+                        .texture_creator()
+                        .create_texture(
+                            None,
+                            sdl2::render::TextureAccess::Target,
+                            ctx.canvas.window().drawable_size().0,
+                            ctx.canvas.window().drawable_size().1,
+                        )
+                        .unwrap();
+                    ctx.ui_tex.set_blend_mode(BlendMode::Add);
                 }
                 Event::KeyDown {
                     keycode: Some(Keycode::F12),
@@ -476,16 +535,21 @@ pub fn main() {
 
         let kb = event_pump.keyboard_state();
         let input = &mut ctx.input;
-        input.up = kb.is_scancode_pressed(Scancode::W);
-        input.down = kb.is_scancode_pressed(Scancode::S);
-        input.left = kb.is_scancode_pressed(Scancode::A);
-        input.right = kb.is_scancode_pressed(Scancode::D);
-        input.fire_right = kb.is_scancode_pressed(Scancode::Right);
-        input.fire_left = kb.is_scancode_pressed(Scancode::Left);
-        input.fire_up = kb.is_scancode_pressed(Scancode::Up);
-        input.fire_down = kb.is_scancode_pressed(Scancode::Down);
-        input.shift = kb.is_scancode_pressed(Scancode::LShift);
-        input.interact = kb.is_scancode_pressed(Scancode::E);
+        input.pressed.up = kb.is_scancode_pressed(Scancode::W);
+        input.pressed.down = kb.is_scancode_pressed(Scancode::S);
+        input.pressed.left = kb.is_scancode_pressed(Scancode::A);
+        input.pressed.right = kb.is_scancode_pressed(Scancode::D);
+        input.pressed.fire_right = kb.is_scancode_pressed(Scancode::Right);
+        input.pressed.fire_left = kb.is_scancode_pressed(Scancode::Left);
+        input.pressed.fire_up = kb.is_scancode_pressed(Scancode::Up);
+        input.pressed.fire_down = kb.is_scancode_pressed(Scancode::Down);
+        input.pressed.shift = kb.is_scancode_pressed(Scancode::LShift);
+        input.justPressed.interact = !input.pressed.interact && kb.is_scancode_pressed(Scancode::F);
+        input.pressed.interact = kb.is_scancode_pressed(Scancode::F);
+        input.justPressed.q = !input.pressed.q && kb.is_scancode_pressed(Scancode::Q);
+        input.pressed.q = kb.is_scancode_pressed(Scancode::Q);
+        input.justPressed.e = !input.pressed.e && kb.is_scancode_pressed(Scancode::E);
+        input.pressed.e = kb.is_scancode_pressed(Scancode::E);
 
         let update_start = Instant::now();
         game::update(&world);
@@ -618,6 +682,7 @@ pub fn main() {
         game::render(&world);
 
         ctx.canvas.copy(&ctx.lightmap.lights(), None, None).unwrap();
+        ctx.canvas.copy(&ctx.ui_tex, None, None).unwrap();
 
         let end = Instant::now().duration_since(render_start);
         let render_time = end.as_micros();
