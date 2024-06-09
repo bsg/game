@@ -220,11 +220,12 @@ pub struct InputState {
     pub interact: bool,
     pub q: bool,
     pub e: bool,
+    pub use_item: bool,
 }
 
 pub struct Input {
     pressed: InputState,
-    justPressed: InputState,
+    just_pressed: InputState,
 }
 
 pub struct Lightmap {
@@ -380,6 +381,8 @@ pub fn main() {
 
     animations.push("spawner", &[(9, 0, 1, 1).into()]);
 
+    animations.push("chemlight", &[(12, 1, 1, 1).into()]);
+
     let mut ctx = Ctx {
         despawn_queue: RwLock::new(Vec::new()),
         light_tex: texture_creator
@@ -420,8 +423,9 @@ pub fn main() {
                 interact: false,
                 q: false,
                 e: false,
+                use_item: false,
             },
-            justPressed: InputState {
+            just_pressed: InputState {
                 up: false,
                 down: false,
                 left: false,
@@ -434,6 +438,7 @@ pub fn main() {
                 interact: false,
                 q: false,
                 e: false,
+                use_item: false,
             },
         },
         player_speed: 3.0,
@@ -452,10 +457,6 @@ pub fn main() {
     };
 
     ctx.ui_tex.set_blend_mode(BlendMode::Add);
-
-    assert!(ctx.player_inventory.insert(&TestItem {}));
-    assert!(ctx.player_inventory.insert(&PerfectlyGenericItem {}));
-    assert!(ctx.player_inventory.insert(&TestItem {}));
 
     world.add_resource(ctx);
     world.add_resource(DepthBuffer::new());
@@ -535,6 +536,7 @@ pub fn main() {
 
         let kb = event_pump.keyboard_state();
         let input = &mut ctx.input;
+        // TODO just_pressed for all
         input.pressed.up = kb.is_scancode_pressed(Scancode::W);
         input.pressed.down = kb.is_scancode_pressed(Scancode::S);
         input.pressed.left = kb.is_scancode_pressed(Scancode::A);
@@ -544,12 +546,14 @@ pub fn main() {
         input.pressed.fire_up = kb.is_scancode_pressed(Scancode::Up);
         input.pressed.fire_down = kb.is_scancode_pressed(Scancode::Down);
         input.pressed.shift = kb.is_scancode_pressed(Scancode::LShift);
-        input.justPressed.interact = !input.pressed.interact && kb.is_scancode_pressed(Scancode::F);
+        input.just_pressed.interact = !input.pressed.interact && kb.is_scancode_pressed(Scancode::F);
         input.pressed.interact = kb.is_scancode_pressed(Scancode::F);
-        input.justPressed.q = !input.pressed.q && kb.is_scancode_pressed(Scancode::Q);
+        input.just_pressed.q = !input.pressed.q && kb.is_scancode_pressed(Scancode::Q);
         input.pressed.q = kb.is_scancode_pressed(Scancode::Q);
-        input.justPressed.e = !input.pressed.e && kb.is_scancode_pressed(Scancode::E);
+        input.just_pressed.e = !input.pressed.e && kb.is_scancode_pressed(Scancode::E);
         input.pressed.e = kb.is_scancode_pressed(Scancode::E);
+        input.just_pressed.use_item = !input.pressed.use_item && kb.is_scancode_pressed(Scancode::Space);
+        input.pressed.use_item = kb.is_scancode_pressed(Scancode::Space);
 
         let update_start = Instant::now();
         game::update(&world);

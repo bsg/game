@@ -10,8 +10,7 @@ use sdl2::pixels::Color;
 
 use crate::{
     components::{
-        AnimatedSprite, Collider, ColliderGroup, Enemy, Floor, Interactable, Inventory, Light,
-        Player, Pos, Projectile, Prop, Spawner, Static, Wall, CH_HITBOX, CH_NAV, CH_NONE,
+        AnimatedSprite, Chemlight, Collider, ColliderGroup, Enemy, Floor, Interactable, Inventory, Light, PerfectlyGenericItem, Player, Pos, Projectile, Prop, Spawner, Static, TestItem, Torch, Wall, CH_HITBOX, CH_NAV, CH_NONE
     },
     math::{Vec2, Vec3},
     Ctx, DepthBuffer, DrawCmd,
@@ -98,7 +97,7 @@ pub fn update(world: &World) {
 }
 
 fn spawn_player(world: &World, pos: Vec2<f32>) {
-    let ctx = world.resource::<Ctx>().unwrap();
+    let ctx = world.resource_mut::<Ctx>().unwrap();
     world.spawn(&[
         &Player {
             fire_cooldown: ctx.player_fire_cooldown,
@@ -116,10 +115,15 @@ fn spawn_player(world: &World, pos: Vec2<f32>) {
             hitbox: None,
         },
         &Light {
-            radius: 200,
+            radius: 0,
             color: Color::RGB(255, 255, 255),
         },
     ]);
+
+    assert!(ctx.player_inventory.insert(TestItem {}, world));
+    assert!(ctx.player_inventory.insert(PerfectlyGenericItem {}, world));
+    assert!(ctx.player_inventory.insert(Torch::new(), world));
+    assert!(ctx.player_inventory.insert(Chemlight::new(), world));
 }
 
 fn spawn_lever(world: &World, pos: Pos, on_interact: fn(&World, Entity)) {
@@ -378,19 +382,25 @@ fn update_player(world: &World) {
                 }
             }
 
-            if ctx.input.justPressed.q {
-                ctx.player_inventory.set_active_offset(-1)
+            if ctx.input.just_pressed.q {
+                ctx.player_inventory.set_active_offset(-1, world)
             }
 
-            if ctx.input.justPressed.e {
-                ctx.player_inventory.set_active_offset(1)
+            if ctx.input.just_pressed.e {
+                ctx.player_inventory.set_active_offset(1, world)
             }
+
+            if ctx.input.just_pressed.use_item {
+                ctx.player_inventory.do_use(world)
+            }
+
+            ctx.player_inventory.tick(world);
         },
     );
 
     world.run(
         |entity: &Entity, interactable: &mut Interactable, pos: &Pos, ctx: Res<Ctx>| {
-            if ctx.input.justPressed.interact && ctx.player_pos.distance(pos) < 32.0 {
+            if ctx.input.just_pressed.interact && ctx.player_pos.distance(pos) < 32.0 {
                 (interactable.on_interact)(world, *entity);
             }
         },
@@ -725,7 +735,7 @@ pub fn render(world: &World) {
             canvas.set_draw_color(Color::RGB(0, 0, 0));
             canvas.clear();
 
-            if let Some(item) = ctx.player_inventory.get_relative(-1) {
+            if let Some(item) = ctx.player_inventory.get_left() {
                 ctx.spritesheet.draw_to_canvas(
                     canvas,
                     item.sprite(),
@@ -753,7 +763,7 @@ pub fn render(world: &World) {
                 )
             }
 
-            if let Some(item) = ctx.player_inventory.get_relative(1) {
+            if let Some(item) = ctx.player_inventory.get_right() {
                 ctx.spritesheet.draw_to_canvas(
                     canvas,
                     item.sprite(),

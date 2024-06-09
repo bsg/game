@@ -1,7 +1,7 @@
 use std::ops::{Deref, DerefMut};
 
-use crate::{math::Vec2, AnimationId, Sprite};
-use ecs::{Component, Entity, World};
+use crate::{math::Vec2, AnimationId, Ctx, Sprite};
+use ecs::{Component, Entity, Resource, With, World};
 use sdl2::{pixels::Color, rect::Rect};
 
 #[derive(Component)]
@@ -188,7 +188,10 @@ pub struct Static {}
 pub trait Item {
     fn name(&self) -> &'static str;
     fn sprite(&self) -> Sprite;
-    fn tick(&self);
+    fn on_tick(&mut self, is_active: bool, world: &World) -> InventoryCmd;
+    fn on_use(&mut self, world: &World) -> InventoryCmd;
+    fn on_select(&mut self, world: &World);
+    fn on_deselect(&mut self, world: &World);
 }
 
 pub struct PerfectlyGenericItem {}
@@ -201,9 +204,17 @@ impl Item for PerfectlyGenericItem {
         (14, 0, 1, 1).into()
     }
 
-    fn tick(&self) {
-        todo!()
+    fn on_tick(&mut self, _is_active: bool, _world: &World) -> InventoryCmd {
+        InventoryCmd::None
     }
+
+    fn on_use(&mut self, _world: &World) -> InventoryCmd {
+        InventoryCmd::None
+    }
+
+    fn on_select(&mut self, _world: &World) {}
+
+    fn on_deselect(&mut self, _world: &World) {}
 }
 
 pub struct TestItem {}
@@ -216,32 +227,152 @@ impl Item for TestItem {
         (10, 0, 1, 1).into()
     }
 
-    fn tick(&self) {
-        todo!()
+    fn on_tick(&mut self, _is_active: bool, _world: &World) -> InventoryCmd {
+        InventoryCmd::None
+    }
+
+    fn on_use(&mut self, _world: &World) -> InventoryCmd {
+        InventoryCmd::None
+    }
+
+    fn on_select(&mut self, _world: &World) {}
+
+    fn on_deselect(&mut self, _world: &World) {}
+}
+
+pub struct Torch {
+    pub is_lit: bool,
+    pub ticks_left: usize,
+}
+
+impl Torch {
+    pub fn new() -> Self {
+        Torch {
+            is_lit: false,
+            ticks_left: 300,
+        }
     }
 }
 
+impl Item for Torch {
+    fn name(&self) -> &'static str {
+        "torch"
+    }
+
+    fn sprite(&self) -> Sprite {
+        (10, 1, 1, 1).into()
+    }
+
+    fn on_tick(&mut self, _is_active: bool, world: &World) -> InventoryCmd {
+        if self.ticks_left == 0 {
+            world.run(|light: &mut Light, _: With<Player>| {
+                light.radius = 0;
+            });
+            return InventoryCmd::Remove;
+        }
+
+        if self.is_lit {
+            self.ticks_left = self.ticks_left.saturating_sub(1);
+        }
+
+        InventoryCmd::None
+    }
+
+    fn on_use(&mut self, world: &World) -> InventoryCmd {
+        self.is_lit = true;
+        world.run(|light: &mut Light, _: With<Player>| {
+            light.radius = 150;
+        });
+        InventoryCmd::None
+    }
+
+    fn on_select(&mut self, _world: &World) {}
+
+    fn on_deselect(&mut self, _world: &World) {}
+}
+
+pub struct Chemlight {
+    pub uses_left: u16,
+}
+
+impl Chemlight {
+    pub fn new() -> Self {
+        Chemlight { uses_left: 5 }
+    }
+}
+
+impl Item for Chemlight {
+    fn name(&self) -> &'static str {
+        "chemlight"
+    }
+
+    fn sprite(&self) -> Sprite {
+        (12, 1, 1, 1).into()
+    }
+
+    fn on_tick(&mut self, _is_active: bool, _world: &World) -> InventoryCmd {
+        InventoryCmd::None
+    }
+
+    fn on_use(&mut self, world: &World) -> InventoryCmd {
+        let ctx = world.resource::<Ctx>().unwrap();
+        world.spawn(&[
+            &ctx.player_pos,
+            &AnimatedSprite::new(
+                (-16, -16, 32, 32),
+                0,
+                ctx.animations.get("chemlight").unwrap(),
+                None,
+            ),
+            &Light {
+                radius: 120,
+                color: Color::RGB(0, 255, 0),
+            },
+        ]);
+        self.uses_left -= 1;
+        if self.uses_left == 0 {
+            InventoryCmd::Remove
+        } else {
+            InventoryCmd::None
+        }
+    }
+
+    fn on_select(&mut self, _world: &World) {}
+
+    fn on_deselect(&mut self, _world: &World) {}
+}
+
+pub enum InventoryCmd {
+    None,
+    Remove,
+}
+
+// FIXME awful everything
 pub struct Inventory {
-    items: [Option<&'static dyn Item>; 8],
+    items: [Option<Box<dyn Item>>; 8],
     num_items: u16,
     active_item_idx: u16,
 }
 
-// FIXME awful everything
 impl Inventory {
     pub fn new() -> Self {
         Inventory {
-            items: [None; 8],
+            // TODO there's supposed to be a way to do this
+            // items: [None; 8],
+            items: [None, None, None, None, None, None, None, None],
             num_items: 0,
             active_item_idx: 0,
         }
     }
 
-    pub fn insert(&mut self, item: &'static dyn Item) -> bool {
+    pub fn insert(&mut self, item: impl Item + 'static, world: &World) -> bool {
         if self.num_items < 8 {
             for slot in self.items.iter_mut() {
                 if slot.is_none() {
-                    let _ = slot.insert(item);
+                    let item = slot.insert(Box::new(item));
+                    if self.num_items == 0 {
+                        item.on_select(world)
+                    }
                     self.num_items += 1;
                     return true;
                 }
@@ -252,23 +383,9 @@ impl Inventory {
         }
     }
 
-    pub fn take(&mut self, name: &'static str) -> Option<&'static dyn Item> {
-        if self.num_items > 0 {
-            for mut slot in self.items {
-                if let Some(item) = slot {
-                    if item.name() == name {
-                        self.num_items -= 1;
-                        return slot.take();
-                    }
-                }
-            }
-        }
-        None
-    }
-
     pub fn has_item(&self, name: &'static str) -> bool {
         if self.num_items > 0 {
-            for item in self.items.into_iter().flatten() {
+            for item in self.items.iter().flatten() {
                 if item.name() == name {
                     return true;
                 }
@@ -278,22 +395,60 @@ impl Inventory {
     }
 
     pub fn active_item(&self) -> Option<&dyn Item> {
-        self.items[self.active_item_idx as usize]
+        self.items[self.active_item_idx as usize].as_deref()
     }
 
-    pub fn tick(&mut self) {
-        for item in self.items.iter_mut().flatten() {
-            item.tick();
+    fn next_idx_right(&self) -> Option<u16> {
+        let mut idx = self.active_item_idx;
+        let mut i = 0;
+        while i < 7 {
+            if self.items[idx as usize].is_some() && idx != self.active_item_idx {
+                return Some(idx);
+            }
+            idx = (idx + 1) % 8;
+            i += 1;
+        }
+        None
+    }
+
+    fn next_idx_left(&self) -> Option<u16> {
+        let mut idx = self.active_item_idx;
+        let mut i = 0;
+        while i < 7 {
+            if self.items[idx as usize].is_some() && idx != self.active_item_idx {
+                return Some(idx);
+            }
+            idx = (idx.wrapping_sub(1)) % 8;
+            i += 1;
+        }
+        None
+    }
+
+    pub fn tick(&mut self, world: &World) {
+        for i in 0..8 {
+            if let Some(item) = self.items[i].as_mut() {
+                let cmd = item.on_tick(i == self.active_item_idx as usize, world);
+                match cmd {
+                    InventoryCmd::None => (),
+                    InventoryCmd::Remove => {
+                        *self.items.get_mut(i).unwrap() = None;
+                    }
+                }
+            }
         }
     }
 
-    pub fn set_active(&mut self, idx: u16) {
-        self.active_item_idx = idx;
-    }
-
-    pub fn set_active_offset(&mut self, offset: i16) {
+    pub fn set_active_offset(&mut self, offset: i16, world: &World) {
         let mut i = 0;
-        if offset >= 0 {
+        if offset == 0 {
+            return;
+        }
+
+        if let Some(item) = self.items.get_mut(self.active_item_idx as usize).unwrap() {
+            item.on_deselect(world);
+        }
+
+        if offset > 0 {
             self.active_item_idx = (self.active_item_idx as i16 + offset) as u16 % 8;
             while i < 8 && self.items[self.active_item_idx as usize].is_none() {
                 i += 1;
@@ -303,28 +458,38 @@ impl Inventory {
             self.active_item_idx = (self.active_item_idx as i16 + 8 + offset) as u16 % 8;
             while i < 8 && self.items[self.active_item_idx as usize].is_none() {
                 i += 1;
-                self.active_item_idx = (self.active_item_idx - 1) % 8;
+                self.active_item_idx = self.active_item_idx.wrapping_sub(1) % 8;
             }
+        }
+
+        if let Some(item) = self.items.get_mut(self.active_item_idx as usize).unwrap() {
+            item.on_select(world);
         }
     }
 
-    /// Get the item with offset relative to active item
-    pub fn get_relative(&self, offset: isize) -> Option<&dyn Item> {
-        let mut i = 0;
-        if offset >= 0 {
-            let mut idx = (self.active_item_idx as isize + offset % 8) as usize;
-            while i < 8 && self.items[idx % 8].is_none() {
-                i += 1;
-                idx += 1;
+    pub fn get_left(&self) -> Option<&dyn Item> {
+        if let Some(idx) = self.next_idx_left() {
+            return self.items[idx as usize].as_deref();
+        }
+        None
+    }
+
+    pub fn get_right(&self) -> Option<&dyn Item> {
+        if let Some(idx) = self.next_idx_right() {
+            return self.items[idx as usize].as_deref();
+        }
+        None
+    }
+
+    pub fn do_use(&mut self, world: &World) {
+        if let Some(item) = self.items.get_mut(self.active_item_idx as usize).unwrap() {
+            let cmd = item.on_use(world);
+            match cmd {
+                InventoryCmd::None => (),
+                InventoryCmd::Remove => {
+                    *self.items.get_mut(self.active_item_idx as usize).unwrap() = None;
+                }
             }
-            self.items[idx % 8]
-        } else {
-            let mut idx = (self.active_item_idx as isize + 8 + offset) as usize % 8;
-            while i < 8 && self.items[idx % 8].is_none() {
-                i += 1;
-                idx -= 1;
-            }
-            self.items[idx % 8]
         }
     }
 }
