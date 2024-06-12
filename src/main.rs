@@ -546,13 +546,15 @@ pub fn main() {
         input.pressed.fire_up = kb.is_scancode_pressed(Scancode::Up);
         input.pressed.fire_down = kb.is_scancode_pressed(Scancode::Down);
         input.pressed.shift = kb.is_scancode_pressed(Scancode::LShift);
-        input.just_pressed.interact = !input.pressed.interact && kb.is_scancode_pressed(Scancode::F);
+        input.just_pressed.interact =
+            !input.pressed.interact && kb.is_scancode_pressed(Scancode::F);
         input.pressed.interact = kb.is_scancode_pressed(Scancode::F);
         input.just_pressed.q = !input.pressed.q && kb.is_scancode_pressed(Scancode::Q);
         input.pressed.q = kb.is_scancode_pressed(Scancode::Q);
         input.just_pressed.e = !input.pressed.e && kb.is_scancode_pressed(Scancode::E);
         input.pressed.e = kb.is_scancode_pressed(Scancode::E);
-        input.just_pressed.use_item = !input.pressed.use_item && kb.is_scancode_pressed(Scancode::Space);
+        input.just_pressed.use_item =
+            !input.pressed.use_item && kb.is_scancode_pressed(Scancode::Space);
         input.pressed.use_item = kb.is_scancode_pressed(Scancode::Space);
 
         let update_start = Instant::now();
@@ -562,123 +564,7 @@ pub fn main() {
 
         let render_start = Instant::now();
 
-        ctx.canvas
-            .with_texture_canvas(&mut ctx.lightmap.lights_mut(), |canvas| {
-                let camera_pos = world.resource::<Ctx>().unwrap().camera_pos();
-
-                // clear lightmap to ambient
-                canvas.set_draw_color(Color::RGB(70, 70, 70));
-                canvas.clear();
-
-                // TODO extract the occlusion pass out because this is unreadable as fuck
-                world.run(|light: &mut Light, lp: &Pos| {
-                    let x = lp.x + camera_pos.0 as f32;
-                    let y = lp.y + camera_pos.1 as f32;
-
-                    if light.radius > 0 {
-                        if ctx.shadows_enabled {
-                            canvas
-                                .with_texture_canvas(&mut ctx.lightmap.mask_mut(), |canvas| {
-                                    // clear occlusion mask
-                                    canvas.set_draw_color(Color::RGB(255, 255, 255));
-                                    canvas.clear();
-
-                                    let light_bounds = Rect::new(
-                                        x as i32 - light.radius as i32,
-                                        y as i32 - light.radius as i32,
-                                        light.radius as u32 * 2,
-                                        light.radius as u32 * 2,
-                                    );
-
-                                    world.run(|cg: &ColliderGroup, _: With<Wall>| {
-                                        if let Some(rect) =
-                                            light_bounds.intersection(cg.nav.unwrap().bounds)
-                                        {
-                                            let dx = x as i32 - rect.center().x;
-                                            let dy = y as i32 - rect.center().y;
-
-                                            let p0 = if dx.signum() == dy.signum() {
-                                                rect.bottom_left()
-                                            } else {
-                                                rect.top_left()
-                                            };
-
-                                            let p1 = if dx.signum() == dy.signum() {
-                                                rect.top_right()
-                                            } else {
-                                                rect.bottom_right()
-                                            };
-
-                                            let theta_0 =
-                                                f32::atan2(y - p0.y as f32, x - p0.x as f32);
-
-                                            let theta_1 =
-                                                f32::atan2(y - p1.y as f32, x - p1.x as f32);
-
-                                            // TODO should calculate p0' and p1' on the tangent line at p_t
-                                            let p0_prime = (
-                                                x as i32
-                                                    - (theta_0.cos() * light.radius as f32 * 2.)
-                                                        as i32,
-                                                y as i32
-                                                    - (theta_0.sin() * light.radius as f32 * 2.)
-                                                        as i32,
-                                            );
-
-                                            let p1_prime = (
-                                                x as i32
-                                                    - (theta_1.cos() * light.radius as f32 * 2.)
-                                                        as i32,
-                                                y as i32
-                                                    - (theta_1.sin() * light.radius as f32 * 2.)
-                                                        as i32,
-                                            );
-
-                                            // TODO filled_trigon x2 would perhaps be faster?
-                                            canvas
-                                                .filled_polygon(
-                                                    &[
-                                                        p0.x as i16,
-                                                        p1.x as i16,
-                                                        p1_prime.0 as i16,
-                                                        p0_prime.0 as i16,
-                                                    ],
-                                                    &[
-                                                        p0.y as i16,
-                                                        p1.y as i16,
-                                                        p1_prime.1 as i16,
-                                                        p0_prime.1 as i16,
-                                                    ],
-                                                    Color::RGB(0, 0, 0),
-                                                )
-                                                .unwrap();
-                                        }
-                                    });
-                                })
-                                .unwrap();
-                        }
-
-                        ctx.light_tex.set_blend_mode(BlendMode::Add);
-                        ctx.light_tex
-                            .set_color_mod(light.color.r, light.color.g, light.color.b);
-                        canvas
-                            .copy(
-                                &ctx.light_tex,
-                                None,
-                                Rect::from_center(
-                                    (x as i32, y as i32),
-                                    (light.radius as u32) * 2,
-                                    (light.radius as u32) * 2,
-                                ),
-                            )
-                            .unwrap();
-                    }
-                    if ctx.shadows_enabled {
-                        canvas.copy(&ctx.lightmap.mask(), None, None).unwrap();
-                    }
-                });
-            })
-            .unwrap();
+        render_lights(&world, ctx);
 
         ctx.canvas.set_draw_color(Color::RGB(0, 0, 0));
         ctx.canvas.clear();
@@ -736,4 +622,133 @@ pub fn main() {
 
         ctx.canvas.present();
     }
+}
+
+fn render_lights(world: &World, ctx: &mut Ctx) {
+    ctx.canvas
+            .with_texture_canvas(&mut ctx.lightmap.lights_mut(), |canvas| {
+                let camera_pos = world.resource::<Ctx>().unwrap().camera_pos();
+
+                // clear lightmap to ambient
+                canvas.set_draw_color(Color::RGB(70, 70, 70));
+                canvas.clear();
+
+                // TODO extract the occlusion pass out because this is unreadable as fuck
+                world.run(|light: &mut Light, lp: &Pos| {
+                    let x = lp.x + camera_pos.0 as f32;
+                    let y = lp.y + camera_pos.1 as f32;
+
+                    if light.radius > 0 && light.intensity > 0. {
+                        if ctx.shadows_enabled {
+                            build_shadow_mask(light, *lp, camera_pos.into(), &ctx.lightmap, world, canvas);
+                        }
+
+                        ctx.light_tex.set_blend_mode(BlendMode::Add);
+                        ctx.light_tex.set_color_mod(
+                            (light.color.r as f32 * light.intensity) as u8,
+                            (light.color.g as f32 * light.intensity) as u8,
+                            (light.color.b as f32 * light.intensity) as u8,
+                        );
+                        canvas
+                            .copy(
+                                &ctx.light_tex,
+                                None,
+                                Rect::from_center(
+                                    (x as i32, y as i32),
+                                    (light.radius as u32) * 2,
+                                    (light.radius as u32) * 2,
+                                ),
+                            )
+                            .unwrap();
+                    }
+                    if ctx.shadows_enabled {
+                        canvas.copy(&ctx.lightmap.mask(), None, None).unwrap();
+                    }
+                });
+            })
+            .unwrap();
+}
+
+fn build_shadow_mask(
+    light: &Light,
+    lp: Pos, // light pos
+    cp: Pos, // camera pos
+    lightmap: &Lightmap,
+    world: &World,
+    canvas: &mut Canvas<Window>,
+) {
+    // TODO cull off-screen lights
+    canvas
+        .with_texture_canvas(&mut lightmap.mask_mut(), |canvas| {
+            // clear occlusion mask
+            canvas.set_draw_color(Color::RGB(255, 255, 255));
+            canvas.clear();
+
+            let light_bounds = Rect::new(
+                lp.x as i32 - light.radius as i32,
+                lp.y as i32 - light.radius as i32,
+                light.radius as u32 * 2,
+                light.radius as u32 * 2,
+            );
+
+            world.run(|cg: &ColliderGroup, _: With<Wall>| {
+                if let Some(mut rect) = light_bounds.intersection(cg.nav.unwrap().bounds) {
+                    rect.x += cp.x as i32;
+                    rect.y += cp.y as i32;
+
+                    // screen position
+                    let lp = Pos::new(lp.x + cp.x, lp.y + cp.y);
+
+                    let dx = lp.x as i32 - rect.center().x;
+                    let dy = lp.y as i32 - rect.center().y;
+
+                    let p0 = if dx.signum() == dy.signum() {
+                        rect.bottom_left()
+                    } else {
+                        rect.top_left()
+                    };
+
+                    let p1 = if dx.signum() == dy.signum() {
+                        rect.top_right()
+                    } else {
+                        rect.bottom_right()
+                    };
+
+                    let theta_0 = f32::atan2(lp.y - p0.y as f32, lp.x - p0.x as f32);
+
+                    let theta_1 = f32::atan2(lp.y - p1.y as f32, lp.x - p1.x as f32);
+
+                    // TODO should calculate p0' and p1' on the tangent line at p_t
+                    let p0_prime = (
+                        lp.x as i32 - (theta_0.cos() * light.radius as f32 * 2.) as i32,
+                        lp.y as i32 - (theta_0.sin() * light.radius as f32 * 2.) as i32,
+                    );
+
+                    let p1_prime = (
+                        lp.x as i32 - (theta_1.cos() * light.radius as f32 * 2.) as i32,
+                        lp.y as i32 - (theta_1.sin() * light.radius as f32 * 2.) as i32,
+                    );
+
+                    // TODO filled_trigon x2 would perhaps be faster?
+                    canvas
+                        .filled_polygon(
+                            &[
+                                p0.x as i16,
+                                p1.x as i16,
+                                p1_prime.0 as i16,
+                                p0_prime.0 as i16,
+                            ],
+                            &[
+                                p0.y as i16,
+                                p1.y as i16,
+                                p1_prime.1 as i16,
+                                p0_prime.1 as i16,
+                            ],
+                            Color::RGB(0, 0, 0),
+                        )
+                        .unwrap();
+                }
+            });
+        })
+        .unwrap();
 }

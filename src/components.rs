@@ -1,7 +1,9 @@
+// TODO move inventory related stuff elsewhere since inventory is not a component
+
 use std::ops::{Deref, DerefMut};
 
 use crate::{math::Vec2, AnimationId, Ctx, Sprite};
-use ecs::{Component, Entity, Resource, With, World};
+use ecs::{Component, Entity, With, World};
 use sdl2::{pixels::Color, rect::Rect};
 
 #[derive(Component)]
@@ -32,6 +34,18 @@ impl Deref for Pos {
 impl DerefMut for Pos {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
+    }
+}
+
+impl From<(f32, f32)> for Pos {
+    fn from(value: (f32, f32)) -> Self {
+        Pos::new(value.0, value.1)
+    }
+}
+
+impl From<(i32, i32)> for Pos {
+    fn from(value: (i32, i32)) -> Self {
+        Pos::new(value.0 as f32, value.1 as f32)
     }
 }
 
@@ -157,6 +171,7 @@ pub struct Projectile {
 pub struct Light {
     pub radius: u16,
     pub color: Color,
+    pub intensity: f32,
 }
 
 #[derive(Component)]
@@ -242,6 +257,7 @@ impl Item for TestItem {
 
 pub struct Torch {
     pub is_lit: bool,
+    pub ticks_max: usize,
     pub ticks_left: usize,
 }
 
@@ -249,7 +265,8 @@ impl Torch {
     pub fn new() -> Self {
         Torch {
             is_lit: false,
-            ticks_left: 300,
+            ticks_max: 3600,
+            ticks_left: 3600,
         }
     }
 }
@@ -269,6 +286,10 @@ impl Item for Torch {
                 light.radius = 0;
             });
             return InventoryCmd::Remove;
+        } else {
+            world.run(|light: &mut Light, _: With<Player>| {
+                light.radius = (100. * self.ticks_left as f32 / self.ticks_max as f32) as u16 + 20;
+            });
         }
 
         if self.is_lit {
@@ -281,7 +302,9 @@ impl Item for Torch {
     fn on_use(&mut self, world: &World) -> InventoryCmd {
         self.is_lit = true;
         world.run(|light: &mut Light, _: With<Player>| {
+            light.color = Color::RGB(255, 255, 100);
             light.radius = 150;
+            light.intensity = 1.;
         });
         InventoryCmd::None
     }
@@ -327,6 +350,7 @@ impl Item for Chemlight {
             &Light {
                 radius: 120,
                 color: Color::RGB(0, 255, 0),
+                intensity: 1.,
             },
         ]);
         self.uses_left -= 1;

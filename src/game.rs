@@ -117,6 +117,7 @@ fn spawn_player(world: &World, pos: Vec2<f32>) {
         &Light {
             radius: 0,
             color: Color::RGB(255, 255, 255),
+            intensity: 0.
         },
     ]);
 
@@ -161,6 +162,7 @@ fn spawn_spawner(world: &World, pos: Pos) -> Entity {
         &Light {
             radius: 0,
             color: Color::RGB(150, 150, 150),
+            intensity: 1.
         },
     ])
 }
@@ -216,6 +218,7 @@ fn spawn_torch(world: &World, pos: Pos) {
         &Light {
             radius: 120,
             color: Color::RGB(255, 255, 0),
+            intensity: 1.
         },
     ]);
 }
@@ -254,6 +257,7 @@ fn spawn_enemy(world: &World, pos: Pos) {
         &Light {
             radius: 30,
             color: Color::RGB(200, 200, 200),
+            intensity: 1.
         },
     ]);
 }
@@ -293,6 +297,7 @@ fn spawn_bullet(world: &World, pos: Vec2<f32>, velocity_normal: Vec2<f32>) {
         &Light {
             radius: 20,
             color: Color::RGB(160, 150, 10),
+            intensity: 1.
         },
     ]);
 }
@@ -502,6 +507,7 @@ fn update_spawners(world: &World) {
                         &Light {
                             radius: 2,
                             color: Color::RGB(255, 255, 255),
+                            intensity: 1.
                         },
                         &ColliderGroup {
                             nav: Some(Collider::new(

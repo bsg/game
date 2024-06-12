@@ -130,6 +130,12 @@ impl<T: Scalar<T>> Vec2<T> {
     }
 }
 
+impl<S: Scalar<S>> From<(S, S)> for Vec2<S> {
+    fn from(value: (S, S)) -> Self {
+        Vec2::new(value.0, value.1)
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct Vec3<T> {
     pub x: T,
