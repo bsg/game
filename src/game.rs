@@ -652,19 +652,12 @@ pub fn render(world: &World) {
     }
 
     #[inline(always)]
-    fn draw(
-        ctx: &mut Ctx,
-        anim: &mut AnimatedSprite,
-        pos: &Pos,
-        camera_pos: (i32, i32),
-        specular_map: &mut Canvas<Window>,
-    ) {
+    fn draw(ctx: &mut Ctx, anim: &mut AnimatedSprite, pos: &Pos, camera_pos: (i32, i32)) {
         let frames = ctx.animations.get_frames(anim.anim());
         let sprite = frames[anim.frame as usize];
 
         ctx.spritesheet.draw_to_canvas(
             &mut ctx.canvas,
-            specular_map,
             sprite,
             (
                 pos.x as i32 + anim.x_offset as i32 + camera_pos.0,
@@ -701,121 +694,107 @@ pub fn render(world: &World) {
         update_anim(anim, frames.len() - 1);
     }
 
+    world.run(
+        |pos: &mut Pos, sprite: &mut AnimatedSprite, mut ctx: ResMut<Ctx>, _: With<Floor>| {
+            draw(&mut ctx, sprite, pos, camera_pos);
+        },
+    );
+
+    world.run(
+        |pos: &mut Pos, sprite: &mut AnimatedSprite, mut ctx: ResMut<Ctx>, _: With<Prop>| {
+            draw(&mut ctx, sprite, pos, camera_pos);
+        },
+    );
+
+    world.run(
+        |pos: &mut Pos,
+         sprite: &mut AnimatedSprite,
+         mut depth_buffer: ResMut<DepthBuffer>,
+         ctx: Res<Ctx>,
+         _: Without<Floor>,
+         _: Without<Prop>| {
+            push(&ctx, &mut depth_buffer, sprite, pos, camera_pos);
+        },
+    );
+
+    let ctx = world.resource_mut::<Ctx>().unwrap();
+    let depth_buffer = world.resource_mut::<DepthBuffer>().unwrap();
+    depth_buffer.draw_to_canvas(&mut ctx.canvas, &ctx.spritesheet);
+
+    if ctx.debug_draw_centerpoints {
+        world.run(|pos: &Pos, _: Without<Floor>| {
+            let x = pos.x + ctx.camera_pos().0 as f32;
+            let y = pos.y + ctx.camera_pos().1 as f32;
+
+            ctx.canvas.set_draw_color(Color::RGBA(0, 255, 0, 255));
+            ctx.canvas
+                .draw_line(((x - 2.) as i32, y as i32), ((x + 2.) as i32, y as i32))
+                .unwrap();
+            ctx.canvas
+                .draw_line((x as i32, (y - 2.) as i32), (x as i32, (y + 2.) as i32))
+                .unwrap();
+        });
+    }
+
     ctx.canvas
-        .with_texture_canvas(&mut ctx.lightmap.specular_map_mut(), |specular_map| {
-            world.run(
-                |pos: &mut Pos,
-                 sprite: &mut AnimatedSprite,
-                 mut ctx: ResMut<Ctx>,
-                 _: With<Floor>| {
-                    draw(&mut ctx, sprite, pos, camera_pos, specular_map);
-                },
-            );
+        .with_texture_canvas(&mut ctx.ui_tex, |canvas| {
+            canvas.set_draw_color(Color::RGB(0, 0, 0));
+            canvas.clear();
 
-            world.run(
-                |pos: &mut Pos,
-                 sprite: &mut AnimatedSprite,
-                 mut ctx: ResMut<Ctx>,
-                 _: With<Prop>| {
-                    draw(&mut ctx, sprite, pos, camera_pos, specular_map);
-                },
-            );
-
-            world.run(
-                |pos: &mut Pos,
-                 sprite: &mut AnimatedSprite,
-                 mut depth_buffer: ResMut<DepthBuffer>,
-                 ctx: Res<Ctx>,
-                 _: Without<Floor>,
-                 _: Without<Prop>| {
-                    push(&ctx, &mut depth_buffer, sprite, pos, camera_pos);
-                },
-            );
-
-            let ctx = world.resource_mut::<Ctx>().unwrap();
-            let depth_buffer = world.resource_mut::<DepthBuffer>().unwrap();
-            depth_buffer.draw_to_canvas(&mut ctx.canvas, specular_map, &ctx.spritesheet);
-
-            if ctx.debug_draw_centerpoints {
-                world.run(|pos: &Pos, _: Without<Floor>| {
-                    let x = pos.x + ctx.camera_pos().0 as f32;
-                    let y = pos.y + ctx.camera_pos().1 as f32;
-
-                    ctx.canvas.set_draw_color(Color::RGBA(0, 255, 0, 255));
-                    ctx.canvas
-                        .draw_line(((x - 2.) as i32, y as i32), ((x + 2.) as i32, y as i32))
-                        .unwrap();
-                    ctx.canvas
-                        .draw_line((x as i32, (y - 2.) as i32), (x as i32, (y + 2.) as i32))
-                        .unwrap();
-                });
+            if let Some(item) = ctx.player_inventory.get_left() {
+                ctx.spritesheet.draw_to_canvas(
+                    canvas,
+                    item.sprite(),
+                    (
+                        canvas.viewport().width() as i32 / 2 - 58,
+                        canvas.viewport().height() as i32 - 40,
+                    ),
+                    0.,
+                    false,
+                    false,
+                )
             }
 
-            ctx.canvas
-                .with_texture_canvas(&mut ctx.ui_tex, |canvas| {
-                    canvas.set_draw_color(Color::RGB(0, 0, 0));
-                    canvas.clear();
+            if let Some(item) = ctx.player_inventory.active_item() {
+                ctx.spritesheet.draw_to_canvas(
+                    canvas,
+                    item.sprite(),
+                    (
+                        canvas.viewport().width() as i32 / 2 - 16,
+                        canvas.viewport().height() as i32 - 40,
+                    ),
+                    0.,
+                    false,
+                    false,
+                )
+            }
 
-                    if let Some(item) = ctx.player_inventory.get_left() {
-                        ctx.spritesheet.draw_to_canvas(
-                            canvas,
-                            specular_map,
-                            item.sprite(),
-                            (
-                                canvas.viewport().width() as i32 / 2 - 58,
-                                canvas.viewport().height() as i32 - 40,
-                            ),
-                            0.,
-                            false,
-                            false,
-                        )
-                    }
+            if let Some(item) = ctx.player_inventory.get_right() {
+                ctx.spritesheet.draw_to_canvas(
+                    canvas,
+                    item.sprite(),
+                    (
+                        canvas.viewport().width() as i32 / 2 + 28,
+                        canvas.viewport().height() as i32 - 40,
+                    ),
+                    0.,
+                    false,
+                    false,
+                )
+            }
 
-                    if let Some(item) = ctx.player_inventory.active_item() {
-                        ctx.spritesheet.draw_to_canvas(
-                            canvas,
-                            specular_map,
-                            item.sprite(),
-                            (
-                                canvas.viewport().width() as i32 / 2 - 16,
-                                canvas.viewport().height() as i32 - 40,
-                            ),
-                            0.,
-                            false,
-                            false,
-                        )
-                    }
-
-                    if let Some(item) = ctx.player_inventory.get_right() {
-                        ctx.spritesheet.draw_to_canvas(
-                            canvas,
-                            specular_map,
-                            item.sprite(),
-                            (
-                                canvas.viewport().width() as i32 / 2 + 28,
-                                canvas.viewport().height() as i32 - 40,
-                            ),
-                            0.,
-                            false,
-                            false,
-                        )
-                    }
-
-                    canvas.set_draw_color(Color::RGB(255, 255, 255));
-                    ctx.spritesheet.draw_to_canvas(
-                        canvas,
-                        specular_map,
-                        ctx.ui_active_item_bg,
-                        (
-                            canvas.viewport().width() as i32 / 2 - 16,
-                            canvas.viewport().height() as i32 - 40,
-                        ),
-                        0.,
-                        false,
-                        false,
-                    );
-                })
-                .unwrap();
+            canvas.set_draw_color(Color::RGB(255, 255, 255));
+            ctx.spritesheet.draw_to_canvas(
+                canvas,
+                ctx.ui_active_item_bg,
+                (
+                    canvas.viewport().width() as i32 / 2 - 16,
+                    canvas.viewport().height() as i32 - 40,
+                ),
+                0.,
+                false,
+                false,
+            );
         })
         .unwrap();
 

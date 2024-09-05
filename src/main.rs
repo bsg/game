@@ -111,35 +111,12 @@ impl Spritesheet {
     pub fn draw_to_canvas(
         &self,
         canvas: &mut Canvas<Window>,
-        specular_map: &mut Canvas<Window>,
         src: Sprite,
         dst: (i32, i32),
         angle: f64,
         flip_horizontal: bool,
         flip_vertical: bool,
     ) {
-        specular_map
-            .copy_ex(
-                unsafe { self.specular.assume_init_ref() },
-                Some(Rect::new(
-                    (src.0 * self.tile_size) as i32,
-                    (src.1 * self.tile_size) as i32,
-                    (self.tile_size * src.2) as u32,
-                    (self.tile_size * src.3) as u32,
-                )),
-                Some(Rect::new(
-                    dst.0,
-                    dst.1,
-                    (self.tile_size * src.2 * 2) as u32,
-                    (self.tile_size * src.3 * 2) as u32,
-                )),
-                angle,
-                None,
-                flip_horizontal,
-                flip_vertical,
-            )
-            .unwrap();
-        
         canvas
             .copy_ex(
                 unsafe { self.texture.assume_init_ref() },
@@ -226,13 +203,11 @@ impl DepthBuffer {
     pub fn draw_to_canvas(
         &mut self,
         canvas: &mut Canvas<Window>,
-        specular_map: &mut Canvas<Window>,
         spritesheet: &Spritesheet,
     ) {
         while let Some(draw_cmd) = self.buffer.pop() {
             spritesheet.draw_to_canvas(
                 canvas,
-                specular_map,
                 draw_cmd.sprite,
                 (draw_cmd.pos.x, draw_cmd.pos.y),
                 0.,
@@ -622,7 +597,6 @@ pub fn main() {
         ctx.canvas.clear();
 
         game::render(&world);
-
         render_lights(&world, ctx);
         ctx.canvas.copy(&ctx.ui_tex, None, None).unwrap();
 
@@ -679,12 +653,12 @@ pub fn main() {
 fn render_lights(world: &World, ctx: &mut Ctx) {
     // TODO cull off-screen lights
     ctx.canvas
-        .with_texture_canvas(&mut ctx.lightmap.lights_mut(), |canvas| {
+        .with_texture_canvas(&mut ctx.lightmap.lights_mut(), |lightmap_canvas| {
             let camera_pos = world.resource::<Ctx>().unwrap().camera_pos();
 
             // clear lightmap to ambient
-            canvas.set_draw_color(Color::RGB(70, 70, 70));
-            canvas.clear();
+            lightmap_canvas.set_draw_color(Color::RGB(70, 70, 70));
+            lightmap_canvas.clear();
 
             world.run(|light: &mut Light, lp: &Pos| {
                 let x = lp.x + camera_pos.0 as f32;
@@ -698,7 +672,7 @@ fn render_lights(world: &World, ctx: &mut Ctx) {
                             camera_pos.into(),
                             &ctx.lightmap,
                             world,
-                            canvas,
+                            lightmap_canvas,
                         );
                     }
 
@@ -708,7 +682,7 @@ fn render_lights(world: &World, ctx: &mut Ctx) {
                         (light.color.g as f32 * light.intensity) as u8,
                         (light.color.b as f32 * light.intensity) as u8,
                     );
-                    canvas
+                    lightmap_canvas
                         .copy(
                             &ctx.light_tex,
                             None,
@@ -721,7 +695,9 @@ fn render_lights(world: &World, ctx: &mut Ctx) {
                         .unwrap();
                 }
                 if ctx.shadows_enabled {
-                    canvas.copy(&ctx.lightmap.mask(), None, None).unwrap();
+                    lightmap_canvas
+                        .copy(&ctx.lightmap.mask(), None, None)
+                        .unwrap();
                 }
             });
         })
@@ -738,10 +714,10 @@ fn build_shadow_mask(
     canvas: &mut Canvas<Window>,
 ) {
     canvas
-        .with_texture_canvas(&mut lightmap.mask_mut(), |canvas| {
+        .with_texture_canvas(&mut lightmap.mask_mut(), |shadow_mask_canvas| {
             // clear occlusion mask
-            canvas.set_draw_color(Color::RGB(255, 255, 255));
-            canvas.clear();
+            shadow_mask_canvas.set_draw_color(Color::RGB(255, 255, 255));
+            shadow_mask_canvas.clear();
 
             let light_bounds = Rect::new(
                 lp.x as i32 - light.radius as i32,
@@ -787,7 +763,7 @@ fn build_shadow_mask(
                         lp.y as i32 - (theta_1.sin() * light.radius as f32 * 2.) as i32,
                     );
 
-                    canvas
+                    shadow_mask_canvas
                         .filled_polygon(
                             &[
                                 p0.x as i16,
