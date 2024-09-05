@@ -189,10 +189,8 @@ pub struct Interactable {
 }
 
 #[derive(Component)]
-pub struct Spawner {
+pub struct ParticleEmitter {
     pub is_active: bool,
-    pub cooldown: u32,
-    pub ticks_left: u32,
     pub particle_cooldown: u32,
     pub particle_ticks_left: u32,
 }

@@ -6,11 +6,13 @@
 
 use ecs::{Entity, Res, ResMut, With, Without, World};
 use rand::{thread_rng, Rng};
-use sdl2::pixels::Color;
+use sdl2::{pixels::Color, render::Canvas, video::Window};
 
 use crate::{
     components::{
-        AnimatedSprite, Chemlight, Collider, ColliderGroup, Enemy, Floor, Interactable, Inventory, Light, PerfectlyGenericItem, Player, Pos, Projectile, Prop, Spawner, Static, TestItem, Torch, Wall, CH_HITBOX, CH_NAV, CH_NONE
+        AnimatedSprite, Chemlight, Collider, ColliderGroup, Enemy, Floor, Interactable, Light,
+        ParticleEmitter, PerfectlyGenericItem, Player, Pos, Projectile, Prop, Static, TestItem,
+        Torch, Wall, CH_HITBOX, CH_NAV, CH_NONE,
     },
     math::{Vec2, Vec3},
     Ctx, DepthBuffer, DrawCmd,
@@ -54,8 +56,8 @@ pub fn init(world: &World) {
     spawn_torch(world, Pos::new(350.0, 570.0));
     spawn_torch(world, Pos::new(600.0, 200.0));
 
-    world.resource_mut::<Ctx>().unwrap().spawner_entity =
-        Some(spawn_spawner(world, Pos::new(540.0, 640.0)));
+    world.resource_mut::<Ctx>().unwrap().particle_emitter_entity =
+        Some(spawn_particle_emitter(world, Pos::new(540.0, 640.0)));
 
     spawn_lever(
         world,
@@ -63,11 +65,19 @@ pub fn init(world: &World) {
         move |world: &World, me: Entity| {
             let sprite = world.component_mut::<AnimatedSprite>(me).unwrap();
             sprite.flip_horizontal = !sprite.flip_horizontal;
-            let spawner_entity = world.resource_mut::<Ctx>().unwrap().spawner_entity.unwrap();
-            let spawner = world.component_mut::<Spawner>(spawner_entity).unwrap();
-            spawner.is_active = !spawner.is_active;
-            world.component_mut::<Light>(spawner_entity).unwrap().radius =
-                if spawner.is_active { 60 } else { 0 };
+            let particle_emitter_entity = world
+                .resource_mut::<Ctx>()
+                .unwrap()
+                .particle_emitter_entity
+                .unwrap();
+            let particle_emitter = world
+                .component_mut::<ParticleEmitter>(particle_emitter_entity)
+                .unwrap();
+            particle_emitter.is_active = !particle_emitter.is_active;
+            world
+                .component_mut::<Light>(particle_emitter_entity)
+                .unwrap()
+                .radius = if particle_emitter.is_active { 60 } else { 0 };
         },
     );
 
@@ -117,7 +127,7 @@ fn spawn_player(world: &World, pos: Vec2<f32>) {
         &Light {
             radius: 0,
             color: Color::RGB(255, 255, 255),
-            intensity: 0.
+            intensity: 0.,
         },
     ]);
 
@@ -141,7 +151,7 @@ fn spawn_lever(world: &World, pos: Pos, on_interact: fn(&World, Entity)) {
     ]);
 }
 
-fn spawn_spawner(world: &World, pos: Pos) -> Entity {
+fn spawn_particle_emitter(world: &World, pos: Pos) -> Entity {
     let ctx = world.resource::<Ctx>().unwrap();
     world.spawn(&[
         &Prop {},
@@ -149,20 +159,18 @@ fn spawn_spawner(world: &World, pos: Pos) -> Entity {
         &AnimatedSprite::new(
             (-16, -16, 32, 32),
             0,
-            ctx.animations.get("spawner").unwrap(),
+            ctx.animations.get("particle_emitter").unwrap(),
             None,
         ),
-        &Spawner {
+        &ParticleEmitter {
             is_active: false,
-            cooldown: 240,
-            ticks_left: 0,
             particle_cooldown: 1,
             particle_ticks_left: 0,
         },
         &Light {
             radius: 0,
             color: Color::RGB(150, 150, 150),
-            intensity: 1.
+            intensity: 1.,
         },
     ])
 }
@@ -218,7 +226,7 @@ fn spawn_torch(world: &World, pos: Pos) {
         &Light {
             radius: 120,
             color: Color::RGB(255, 255, 0),
-            intensity: 1.
+            intensity: 1.,
         },
     ]);
 }
@@ -257,7 +265,7 @@ fn spawn_enemy(world: &World, pos: Pos) {
         &Light {
             radius: 30,
             color: Color::RGB(200, 200, 200),
-            intensity: 1.
+            intensity: 1.,
         },
     ]);
 }
@@ -297,7 +305,7 @@ fn spawn_bullet(world: &World, pos: Vec2<f32>, velocity_normal: Vec2<f32>) {
         &Light {
             radius: 20,
             color: Color::RGB(160, 150, 10),
-            intensity: 1.
+            intensity: 1.,
         },
     ]);
 }
@@ -480,16 +488,8 @@ fn update_projectiles(world: &World) {
 }
 
 fn update_spawners(world: &World) {
-    world.run(|spawner: &mut Spawner, pos: &Pos| {
+    world.run(|spawner: &mut ParticleEmitter, pos: &Pos| {
         if spawner.is_active {
-            if spawner.ticks_left == 0 {
-                spawn_enemy(world, *pos);
-                spawner.ticks_left = spawner.cooldown;
-            } else {
-                spawner.ticks_left -= 1;
-            }
-
-            // Particles
             if spawner.particle_ticks_left == 0 {
                 for _ in 0..2 {
                     let mut v = Vec2::new(
@@ -507,7 +507,7 @@ fn update_spawners(world: &World) {
                         &Light {
                             radius: 2,
                             color: Color::RGB(255, 255, 255),
-                            intensity: 1.
+                            intensity: 1.,
                         },
                         &ColliderGroup {
                             nav: Some(Collider::new(
@@ -635,7 +635,7 @@ fn detect_collisions(world: &World) {
 // ╚═╝  ╚═╝╚══════╝╚═╝  ╚═══╝╚═════╝ ╚══════╝╚═╝  ╚═╝
 
 pub fn render(world: &World) {
-    let ctx = world.resource::<Ctx>().unwrap();
+    let ctx = world.resource_mut::<Ctx>().unwrap();
     let camera_pos = ctx.camera_pos();
 
     #[inline(always)]
@@ -652,12 +652,19 @@ pub fn render(world: &World) {
     }
 
     #[inline(always)]
-    fn draw(ctx: &mut Ctx, anim: &mut AnimatedSprite, pos: &Pos, camera_pos: (i32, i32)) {
+    fn draw(
+        ctx: &mut Ctx,
+        anim: &mut AnimatedSprite,
+        pos: &Pos,
+        camera_pos: (i32, i32),
+        specular_map: &mut Canvas<Window>,
+    ) {
         let frames = ctx.animations.get_frames(anim.anim());
         let sprite = frames[anim.frame as usize];
 
         ctx.spritesheet.draw_to_canvas(
             &mut ctx.canvas,
+            specular_map,
             sprite,
             (
                 pos.x as i32 + anim.x_offset as i32 + camera_pos.0,
@@ -694,107 +701,121 @@ pub fn render(world: &World) {
         update_anim(anim, frames.len() - 1);
     }
 
-    world.run(
-        |pos: &mut Pos, sprite: &mut AnimatedSprite, mut ctx: ResMut<Ctx>, _: With<Floor>| {
-            draw(&mut ctx, sprite, pos, camera_pos);
-        },
-    );
-
-    world.run(
-        |pos: &mut Pos, sprite: &mut AnimatedSprite, mut ctx: ResMut<Ctx>, _: With<Prop>| {
-            draw(&mut ctx, sprite, pos, camera_pos);
-        },
-    );
-
-    world.run(
-        |pos: &mut Pos,
-         sprite: &mut AnimatedSprite,
-         mut depth_buffer: ResMut<DepthBuffer>,
-         ctx: Res<Ctx>,
-         _: Without<Floor>,
-         _: Without<Prop>| {
-            push(&ctx, &mut depth_buffer, sprite, pos, camera_pos);
-        },
-    );
-
-    let ctx = world.resource_mut::<Ctx>().unwrap();
-    let depth_buffer = world.resource_mut::<DepthBuffer>().unwrap();
-    depth_buffer.draw_to_canvas(&mut ctx.canvas, &ctx.spritesheet);
-
-    if ctx.debug_draw_centerpoints {
-        world.run(|pos: &Pos, _: Without<Floor>| {
-            let x = pos.x + ctx.camera_pos().0 as f32;
-            let y = pos.y + ctx.camera_pos().1 as f32;
-
-            ctx.canvas.set_draw_color(Color::RGBA(0, 255, 0, 255));
-            ctx.canvas
-                .draw_line(((x - 2.) as i32, y as i32), ((x + 2.) as i32, y as i32))
-                .unwrap();
-            ctx.canvas
-                .draw_line((x as i32, (y - 2.) as i32), (x as i32, (y + 2.) as i32))
-                .unwrap();
-        });
-    }
-
     ctx.canvas
-        .with_texture_canvas(&mut ctx.ui_tex, |canvas| {
-            canvas.set_draw_color(Color::RGB(0, 0, 0));
-            canvas.clear();
-
-            if let Some(item) = ctx.player_inventory.get_left() {
-                ctx.spritesheet.draw_to_canvas(
-                    canvas,
-                    item.sprite(),
-                    (
-                        canvas.viewport().width() as i32 / 2 - 58,
-                        canvas.viewport().height() as i32 - 40,
-                    ),
-                    0.,
-                    false,
-                    false,
-                )
-            }
-
-            if let Some(item) = ctx.player_inventory.active_item() {
-                ctx.spritesheet.draw_to_canvas(
-                    canvas,
-                    item.sprite(),
-                    (
-                        canvas.viewport().width() as i32 / 2 - 16,
-                        canvas.viewport().height() as i32 - 40,
-                    ),
-                    0.,
-                    false,
-                    false,
-                )
-            }
-
-            if let Some(item) = ctx.player_inventory.get_right() {
-                ctx.spritesheet.draw_to_canvas(
-                    canvas,
-                    item.sprite(),
-                    (
-                        canvas.viewport().width() as i32 / 2 + 28,
-                        canvas.viewport().height() as i32 - 40,
-                    ),
-                    0.,
-                    false,
-                    false,
-                )
-            }
-
-            canvas.set_draw_color(Color::RGB(255, 255, 255));
-            ctx.spritesheet.draw_to_canvas(
-                canvas,
-                ctx.ui_active_item_bg,
-                (
-                    canvas.viewport().width() as i32 / 2 - 16,
-                    canvas.viewport().height() as i32 - 40,
-                ),
-                0.,
-                false,
-                false,
+        .with_texture_canvas(&mut ctx.lightmap.specular_map_mut(), |specular_map| {
+            world.run(
+                |pos: &mut Pos,
+                 sprite: &mut AnimatedSprite,
+                 mut ctx: ResMut<Ctx>,
+                 _: With<Floor>| {
+                    draw(&mut ctx, sprite, pos, camera_pos, specular_map);
+                },
             );
+
+            world.run(
+                |pos: &mut Pos,
+                 sprite: &mut AnimatedSprite,
+                 mut ctx: ResMut<Ctx>,
+                 _: With<Prop>| {
+                    draw(&mut ctx, sprite, pos, camera_pos, specular_map);
+                },
+            );
+
+            world.run(
+                |pos: &mut Pos,
+                 sprite: &mut AnimatedSprite,
+                 mut depth_buffer: ResMut<DepthBuffer>,
+                 ctx: Res<Ctx>,
+                 _: Without<Floor>,
+                 _: Without<Prop>| {
+                    push(&ctx, &mut depth_buffer, sprite, pos, camera_pos);
+                },
+            );
+
+            let ctx = world.resource_mut::<Ctx>().unwrap();
+            let depth_buffer = world.resource_mut::<DepthBuffer>().unwrap();
+            depth_buffer.draw_to_canvas(&mut ctx.canvas, specular_map, &ctx.spritesheet);
+
+            if ctx.debug_draw_centerpoints {
+                world.run(|pos: &Pos, _: Without<Floor>| {
+                    let x = pos.x + ctx.camera_pos().0 as f32;
+                    let y = pos.y + ctx.camera_pos().1 as f32;
+
+                    ctx.canvas.set_draw_color(Color::RGBA(0, 255, 0, 255));
+                    ctx.canvas
+                        .draw_line(((x - 2.) as i32, y as i32), ((x + 2.) as i32, y as i32))
+                        .unwrap();
+                    ctx.canvas
+                        .draw_line((x as i32, (y - 2.) as i32), (x as i32, (y + 2.) as i32))
+                        .unwrap();
+                });
+            }
+
+            ctx.canvas
+                .with_texture_canvas(&mut ctx.ui_tex, |canvas| {
+                    canvas.set_draw_color(Color::RGB(0, 0, 0));
+                    canvas.clear();
+
+                    if let Some(item) = ctx.player_inventory.get_left() {
+                        ctx.spritesheet.draw_to_canvas(
+                            canvas,
+                            specular_map,
+                            item.sprite(),
+                            (
+                                canvas.viewport().width() as i32 / 2 - 58,
+                                canvas.viewport().height() as i32 - 40,
+                            ),
+                            0.,
+                            false,
+                            false,
+                        )
+                    }
+
+                    if let Some(item) = ctx.player_inventory.active_item() {
+                        ctx.spritesheet.draw_to_canvas(
+                            canvas,
+                            specular_map,
+                            item.sprite(),
+                            (
+                                canvas.viewport().width() as i32 / 2 - 16,
+                                canvas.viewport().height() as i32 - 40,
+                            ),
+                            0.,
+                            false,
+                            false,
+                        )
+                    }
+
+                    if let Some(item) = ctx.player_inventory.get_right() {
+                        ctx.spritesheet.draw_to_canvas(
+                            canvas,
+                            specular_map,
+                            item.sprite(),
+                            (
+                                canvas.viewport().width() as i32 / 2 + 28,
+                                canvas.viewport().height() as i32 - 40,
+                            ),
+                            0.,
+                            false,
+                            false,
+                        )
+                    }
+
+                    canvas.set_draw_color(Color::RGB(255, 255, 255));
+                    ctx.spritesheet.draw_to_canvas(
+                        canvas,
+                        specular_map,
+                        ctx.ui_active_item_bg,
+                        (
+                            canvas.viewport().width() as i32 / 2 - 16,
+                            canvas.viewport().height() as i32 - 40,
+                        ),
+                        0.,
+                        false,
+                        false,
+                    );
+                })
+                .unwrap();
         })
         .unwrap();
 

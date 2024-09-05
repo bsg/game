@@ -12,7 +12,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use components::{ColliderGroup, Inventory, PerfectlyGenericItem, TestItem, Wall};
+use components::{ColliderGroup, Inventory, Wall};
 use ecs::{Entity, Resource, With, World};
 use math::Vec3;
 use sdl2::{
@@ -82,34 +82,64 @@ impl From<(u16, u16, u16, u16)> for Sprite {
 
 struct Spritesheet {
     texture: MaybeUninit<Texture>,
+    specular: MaybeUninit<Texture>,
     tile_size: u16,
 }
 
 impl Spritesheet {
     pub fn new_from_file(
         texture_creator: &TextureCreator<WindowContext>,
-        path: &'static str,
+        spritesheet_path: &'static str,
+        specular_path: &'static str,
         tile_size: u16,
     ) -> Self {
-        if let Ok(texture) = texture_creator.load_texture(path) {
-            Spritesheet {
-                texture: MaybeUninit::new(texture),
-                tile_size,
+        if let Ok(spritesheet) = texture_creator.load_texture(spritesheet_path) {
+            if let Ok(specular) = texture_creator.load_texture(specular_path) {
+                Spritesheet {
+                    texture: MaybeUninit::new(spritesheet),
+                    specular: MaybeUninit::new(specular),
+                    tile_size,
+                }
+            } else {
+                panic!("Failed to load texture {}", specular_path)
             }
         } else {
-            panic!("Failed to load texture {}", path)
+            panic!("Failed to load texture {}", spritesheet_path)
         }
     }
 
     pub fn draw_to_canvas(
         &self,
         canvas: &mut Canvas<Window>,
+        specular_map: &mut Canvas<Window>,
         src: Sprite,
         dst: (i32, i32),
         angle: f64,
         flip_horizontal: bool,
         flip_vertical: bool,
     ) {
+        specular_map
+            .copy_ex(
+                unsafe { self.specular.assume_init_ref() },
+                Some(Rect::new(
+                    (src.0 * self.tile_size) as i32,
+                    (src.1 * self.tile_size) as i32,
+                    (self.tile_size * src.2) as u32,
+                    (self.tile_size * src.3) as u32,
+                )),
+                Some(Rect::new(
+                    dst.0,
+                    dst.1,
+                    (self.tile_size * src.2 * 2) as u32,
+                    (self.tile_size * src.3 * 2) as u32,
+                )),
+                angle,
+                None,
+                flip_horizontal,
+                flip_vertical,
+            )
+            .unwrap();
+        
         canvas
             .copy_ex(
                 unsafe { self.texture.assume_init_ref() },
@@ -193,10 +223,16 @@ impl DepthBuffer {
         self.buffer.push(texture);
     }
 
-    pub fn draw_to_canvas(&mut self, canvas: &mut Canvas<Window>, spritesheet: &Spritesheet) {
+    pub fn draw_to_canvas(
+        &mut self,
+        canvas: &mut Canvas<Window>,
+        specular_map: &mut Canvas<Window>,
+        spritesheet: &Spritesheet,
+    ) {
         while let Some(draw_cmd) = self.buffer.pop() {
             spritesheet.draw_to_canvas(
                 canvas,
+                specular_map,
                 draw_cmd.sprite,
                 (draw_cmd.pos.x, draw_cmd.pos.y),
                 0.,
@@ -230,7 +266,8 @@ pub struct Input {
 
 pub struct Lightmap {
     lights: MaybeUninit<Texture>,
-    mask: MaybeUninit<Texture>,
+    shadow_mask: MaybeUninit<Texture>,
+    specular_map: MaybeUninit<Texture>,
 }
 
 impl Lightmap {
@@ -241,15 +278,22 @@ impl Lightmap {
             .unwrap();
         lights.set_blend_mode(sdl2::render::BlendMode::Mul);
 
-        let mut mask = canvas
+        let mut shadow_mask = canvas
             .texture_creator()
             .create_texture_target(canvas.default_pixel_format(), w, h)
             .unwrap();
-        mask.set_blend_mode(sdl2::render::BlendMode::Mul);
+        shadow_mask.set_blend_mode(sdl2::render::BlendMode::Mul);
+
+        let mut specular_map = canvas
+            .texture_creator()
+            .create_texture_target(canvas.default_pixel_format(), w, h)
+            .unwrap();
+        specular_map.set_blend_mode(sdl2::render::BlendMode::Mul);
 
         Lightmap {
             lights: MaybeUninit::new(lights),
-            mask: MaybeUninit::new(mask),
+            shadow_mask: MaybeUninit::new(shadow_mask),
+            specular_map: MaybeUninit::new(specular_map),
         }
     }
 
@@ -262,18 +306,27 @@ impl Lightmap {
     }
 
     pub fn mask(&self) -> Texture {
-        unsafe { self.mask.assume_init_read() }
+        unsafe { self.shadow_mask.assume_init_read() }
     }
 
     pub fn mask_mut(&self) -> Texture {
-        unsafe { self.mask.assume_init_read() }
+        unsafe { self.shadow_mask.assume_init_read() }
+    }
+
+    pub fn specular_map(&self) -> Texture {
+        unsafe { self.specular_map.assume_init_read() }
+    }
+
+    pub fn specular_map_mut(&self) -> Texture {
+        unsafe { self.shadow_mask.assume_init_read() }
     }
 }
 
 impl Drop for Lightmap {
     fn drop(&mut self) {
         unsafe { self.lights.assume_init_read().destroy() }
-        unsafe { self.mask.assume_init_read().destroy() }
+        unsafe { self.shadow_mask.assume_init_read().destroy() }
+        unsafe { self.specular_map.assume_init_read().destroy() }
     }
 }
 
@@ -300,7 +353,7 @@ pub struct Ctx {
     player_pos: Pos,
     room_size: (u16, u16),
     player_inventory: Inventory,
-    spawner_entity: Option<Entity>,
+    particle_emitter_entity: Option<Entity>,
 }
 
 impl Ctx {
@@ -379,7 +432,7 @@ pub fn main() {
 
     animations.push("lever", &[(8, 1, 1, 1).into()]);
 
-    animations.push("spawner", &[(9, 0, 1, 1).into()]);
+    animations.push("particle_emitter", &[(9, 0, 1, 1).into()]);
 
     animations.push("chemlight", &[(12, 1, 1, 1).into()]);
 
@@ -405,6 +458,7 @@ pub fn main() {
         spritesheet: Spritesheet::new_from_file(
             &texture_creator,
             "assets/textures/spritesheet.png",
+            "assets/textures/specular.png",
             16,
         ),
         animations,
@@ -453,7 +507,7 @@ pub fn main() {
         player_pos: Pos::zero(),
         room_size: (2048, 2048),
         player_inventory: Inventory::new(),
-        spawner_entity: None,
+        particle_emitter_entity: None,
     };
 
     ctx.ui_tex.set_blend_mode(BlendMode::Add);
@@ -526,6 +580,7 @@ pub fn main() {
                     ctx.spritesheet = Spritesheet::new_from_file(
                         &ctx.canvas.texture_creator(),
                         "assets/textures/spritesheet.png",
+                        "assets/textures/specular.png",
                         16,
                     );
                     println!("Assets reloaded");
@@ -563,15 +618,12 @@ pub fn main() {
         let update_time = end.as_micros();
 
         let render_start = Instant::now();
-
-        render_lights(&world, ctx);
-
         ctx.canvas.set_draw_color(Color::RGB(0, 0, 0));
         ctx.canvas.clear();
 
         game::render(&world);
 
-        ctx.canvas.copy(&ctx.lightmap.lights(), None, None).unwrap();
+        render_lights(&world, ctx);
         ctx.canvas.copy(&ctx.ui_tex, None, None).unwrap();
 
         let end = Instant::now().duration_since(render_start);
@@ -625,48 +677,56 @@ pub fn main() {
 }
 
 fn render_lights(world: &World, ctx: &mut Ctx) {
+    // TODO cull off-screen lights
     ctx.canvas
-            .with_texture_canvas(&mut ctx.lightmap.lights_mut(), |canvas| {
-                let camera_pos = world.resource::<Ctx>().unwrap().camera_pos();
+        .with_texture_canvas(&mut ctx.lightmap.lights_mut(), |canvas| {
+            let camera_pos = world.resource::<Ctx>().unwrap().camera_pos();
 
-                // clear lightmap to ambient
-                canvas.set_draw_color(Color::RGB(70, 70, 70));
-                canvas.clear();
+            // clear lightmap to ambient
+            canvas.set_draw_color(Color::RGB(70, 70, 70));
+            canvas.clear();
 
-                // TODO extract the occlusion pass out because this is unreadable as fuck
-                world.run(|light: &mut Light, lp: &Pos| {
-                    let x = lp.x + camera_pos.0 as f32;
-                    let y = lp.y + camera_pos.1 as f32;
+            world.run(|light: &mut Light, lp: &Pos| {
+                let x = lp.x + camera_pos.0 as f32;
+                let y = lp.y + camera_pos.1 as f32;
 
-                    if light.radius > 0 && light.intensity > 0. {
-                        if ctx.shadows_enabled {
-                            build_shadow_mask(light, *lp, camera_pos.into(), &ctx.lightmap, world, canvas);
-                        }
-
-                        ctx.light_tex.set_blend_mode(BlendMode::Add);
-                        ctx.light_tex.set_color_mod(
-                            (light.color.r as f32 * light.intensity) as u8,
-                            (light.color.g as f32 * light.intensity) as u8,
-                            (light.color.b as f32 * light.intensity) as u8,
-                        );
-                        canvas
-                            .copy(
-                                &ctx.light_tex,
-                                None,
-                                Rect::from_center(
-                                    (x as i32, y as i32),
-                                    (light.radius as u32) * 2,
-                                    (light.radius as u32) * 2,
-                                ),
-                            )
-                            .unwrap();
-                    }
+                if light.radius > 0 && light.intensity > 0. {
                     if ctx.shadows_enabled {
-                        canvas.copy(&ctx.lightmap.mask(), None, None).unwrap();
+                        build_shadow_mask(
+                            light,
+                            *lp,
+                            camera_pos.into(),
+                            &ctx.lightmap,
+                            world,
+                            canvas,
+                        );
                     }
-                });
-            })
-            .unwrap();
+
+                    ctx.light_tex.set_blend_mode(BlendMode::Add);
+                    ctx.light_tex.set_color_mod(
+                        (light.color.r as f32 * light.intensity) as u8,
+                        (light.color.g as f32 * light.intensity) as u8,
+                        (light.color.b as f32 * light.intensity) as u8,
+                    );
+                    canvas
+                        .copy(
+                            &ctx.light_tex,
+                            None,
+                            Rect::from_center(
+                                (x as i32, y as i32),
+                                (light.radius as u32) * 2,
+                                (light.radius as u32) * 2,
+                            ),
+                        )
+                        .unwrap();
+                }
+                if ctx.shadows_enabled {
+                    canvas.copy(&ctx.lightmap.mask(), None, None).unwrap();
+                }
+            });
+        })
+        .unwrap();
+    ctx.canvas.copy(&ctx.lightmap.lights(), None, None).unwrap();
 }
 
 fn build_shadow_mask(
@@ -677,7 +737,6 @@ fn build_shadow_mask(
     world: &World,
     canvas: &mut Canvas<Window>,
 ) {
-    // TODO cull off-screen lights
     canvas
         .with_texture_canvas(&mut lightmap.mask_mut(), |canvas| {
             // clear occlusion mask
@@ -696,7 +755,7 @@ fn build_shadow_mask(
                     rect.x += cp.x as i32;
                     rect.y += cp.y as i32;
 
-                    // screen position
+                    // world space to screen space
                     let lp = Pos::new(lp.x + cp.x, lp.y + cp.y);
 
                     let dx = lp.x as i32 - rect.center().x;
@@ -715,7 +774,6 @@ fn build_shadow_mask(
                     };
 
                     let theta_0 = f32::atan2(lp.y - p0.y as f32, lp.x - p0.x as f32);
-
                     let theta_1 = f32::atan2(lp.y - p1.y as f32, lp.x - p1.x as f32);
 
                     // TODO should calculate p0' and p1' on the tangent line at p_t
@@ -729,7 +787,6 @@ fn build_shadow_mask(
                         lp.y as i32 - (theta_1.sin() * light.radius as f32 * 2.) as i32,
                     );
 
-                    // TODO filled_trigon x2 would perhaps be faster?
                     canvas
                         .filled_polygon(
                             &[
