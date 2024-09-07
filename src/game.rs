@@ -6,7 +6,7 @@
 
 use ecs::{Entity, Res, ResMut, With, Without, World};
 use rand::{thread_rng, Rng};
-use sdl2::{pixels::Color, render::Canvas, video::Window};
+use sdl2::pixels::Color;
 
 use crate::{
     components::{

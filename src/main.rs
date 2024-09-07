@@ -254,7 +254,7 @@ impl Lightmap {
             .texture_creator()
             .create_texture_target(canvas.default_pixel_format(), w, h)
             .unwrap();
-        per_light_tex.set_blend_mode(sdl2::render::BlendMode::Mul);
+        per_light_tex.set_blend_mode(sdl2::render::BlendMode::Add);
 
         let mut shadow_mask = canvas
             .texture_creator()
@@ -472,7 +472,7 @@ pub fn main() {
         debug_draw_centerpoints: false,
         bullet_lifetime: 60,
         player_fire_cooldown: 20,
-        shadows_enabled: false,
+        shadows_enabled: true,
         player_pos: Pos::zero(),
         room_size: (2048, 2048),
         player_inventory: Inventory::new(),
@@ -592,7 +592,6 @@ pub fn main() {
 
         game::render(&world);
         build_lightmap(&world, ctx);
-        ctx.lightmap.lights().set_blend_mode(BlendMode::Mul);
         ctx.canvas.copy(&ctx.lightmap.lights(), None, None).unwrap();
         ctx.canvas.copy(&ctx.ui_tex, None, None).unwrap();
 
@@ -653,63 +652,52 @@ fn build_lightmap(world: &World, ctx: &mut Ctx) {
             // clear lightmap to ambient
             lightmap_canvas.set_draw_color(Color::RGB(70, 70, 70));
             lightmap_canvas.clear();
-        })
-        .unwrap();
 
-    world.run(|light: &mut Light, lp: &Pos| {
-        let camera_pos = world.resource::<Ctx>().unwrap().camera_pos();
-        let x = lp.x - camera_pos.0 as f32;
-        let y = lp.y - camera_pos.1 as f32;
+            world.run(|light: &mut Light, lp: &Pos| {
+                let camera_pos = world.resource::<Ctx>().unwrap().camera_pos();
+                let x = lp.x - camera_pos.0 as f32;
+                let y = lp.y - camera_pos.1 as f32;
 
-        build_shadow_mask(
-            light,
-            *lp,
-            camera_pos.into(),
-            &ctx.lightmap,
-            world,
-            &mut ctx.canvas,
-        );
-
-        ctx.canvas
-            .with_texture_canvas(&mut ctx.lightmap.per_light_tex(), |per_light_canvas| {
-                per_light_canvas.set_draw_color(Color::RGB(0, 0, 0));
-                per_light_canvas.clear();
-
-                if light.radius > 0 && light.intensity > 0. {
-                    ctx.light_tex.set_blend_mode(BlendMode::Add);
-                    ctx.light_tex.set_color_mod(
-                        (light.color.r as f32 * light.intensity) as u8,
-                        (light.color.g as f32 * light.intensity) as u8,
-                        (light.color.b as f32 * light.intensity) as u8,
-                    );
-                    per_light_canvas
-                        .copy(
-                            &ctx.light_tex,
-                            None,
-                            Rect::from_center(
-                                (x as i32, y as i32),
-                                (light.radius as u32) * 2,
-                                (light.radius as u32) * 2,
-                            ),
-                        )
-                        .unwrap();
+                if ctx.shadows_enabled {
+                    build_shadow_mask(light, *lp, camera_pos.into(), &ctx.lightmap, world, lightmap_canvas);
                 }
 
-                per_light_canvas
-                    .copy(&ctx.lightmap.mask(), None, None)
-                    .unwrap();
-            })
-            .unwrap();
+                lightmap_canvas
+                    .with_texture_canvas(&mut ctx.lightmap.per_light_tex(), |per_light_canvas| {
+                        per_light_canvas.set_draw_color(Color::RGB(0, 0, 0));
+                        per_light_canvas.clear();
 
-        ctx.canvas
-            .with_texture_canvas(&mut ctx.lightmap.lights(), |lightmap_canvas| {
-                ctx.lightmap.per_light_tex().set_blend_mode(BlendMode::Add);
+                        if light.radius > 0 && light.intensity > 0. {
+                            ctx.light_tex.set_color_mod(
+                                (light.color.r as f32 * light.intensity) as u8,
+                                (light.color.g as f32 * light.intensity) as u8,
+                                (light.color.b as f32 * light.intensity) as u8,
+                            );
+                            per_light_canvas
+                                .copy(
+                                    &ctx.light_tex,
+                                    None,
+                                    Rect::from_center(
+                                        (x as i32, y as i32),
+                                        (light.radius as u32) * 2,
+                                        (light.radius as u32) * 2,
+                                    ),
+                                )
+                                .unwrap();
+                        }
+
+                        per_light_canvas
+                            .copy(&ctx.lightmap.mask(), None, None)
+                            .unwrap();
+                    })
+                    .unwrap();
+
                 lightmap_canvas
                     .copy(&ctx.lightmap.per_light_tex(), None, None)
                     .unwrap();
-            })
-            .unwrap();
-    });
+            });
+        })
+        .unwrap();
 }
 
 fn build_shadow_mask(
@@ -722,7 +710,7 @@ fn build_shadow_mask(
 ) {
     // world space to screen space
     let lp = Pos::new(lp.x - cp.x, lp.y - cp.y);
-    
+
     canvas
         .with_texture_canvas(&mut lightmap.mask(), |shadow_mask_canvas| {
             // clear occlusion mask
