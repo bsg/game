@@ -669,8 +669,8 @@ pub fn render(world: &World) {
             &mut ctx.canvas,
             sprite,
             (
-                pos.x as i32 + anim.x_offset as i32 + camera_pos.0,
-                pos.y as i32 + anim.y_offset as i32 + camera_pos.1,
+                pos.x as i32 + anim.x_offset as i32 - camera_pos.0,
+                pos.y as i32 + anim.y_offset as i32 - camera_pos.1,
             ),
             0.,
             anim.flip_horizontal,
@@ -693,8 +693,8 @@ pub fn render(world: &World) {
         depth_buffer.push(DrawCmd {
             sprite,
             pos: Vec3::<i32> {
-                x: pos.x.round() as i32 + anim.x_offset as i32 + camera_pos.0,
-                y: pos.y.round() as i32 + anim.y_offset as i32 + camera_pos.1,
+                x: pos.x.round() as i32 + anim.x_offset as i32 - camera_pos.0,
+                y: pos.y.round() as i32 + anim.y_offset as i32 - camera_pos.1,
                 z: pos.y.round() as i32 + anim.z_offset.map_or(0, |o| o) as i32,
             },
             flip_horizontal: anim.flip_horizontal,
@@ -732,8 +732,8 @@ pub fn render(world: &World) {
 
     if ctx.debug_draw_centerpoints {
         world.run(|pos: &Pos, _: Without<Floor>| {
-            let x = pos.x + ctx.camera_pos().0 as f32;
-            let y = pos.y + ctx.camera_pos().1 as f32;
+            let x = pos.x - ctx.camera_pos().0 as f32;
+            let y = pos.y - ctx.camera_pos().1 as f32;
 
             ctx.canvas.set_draw_color(Color::RGBA(0, 255, 0, 255));
             ctx.canvas
@@ -825,8 +825,8 @@ pub fn render(world: &World) {
             if ctx.debug_draw_nav_colliders {
                 if let Some(collider) = cg.nav.as_ref() {
                     let mut rect = collider.bounds;
-                    rect.x += ctx.camera_pos().0;
-                    rect.y += ctx.camera_pos().1;
+                    rect.x -= ctx.camera_pos().0;
+                    rect.y -= ctx.camera_pos().1;
 
                     if collider.is_colliding {
                         ctx.canvas.set_draw_color(Color::RGB(255, 0, 0));

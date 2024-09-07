@@ -333,12 +333,10 @@ impl Ctx {
         let window_h = self.canvas.window().size().1 as i32;
 
         (
-            window_w / 2
-                - (self.player_pos.x as i32)
-                    .clamp(window_w / 2, self.room_size.0 as i32 - window_w / 2),
-            window_h / 2
-                - (self.player_pos.y as i32)
-                    .clamp(window_h / 2, self.room_size.1 as i32 - window_h / 2),
+            ((self.player_pos.x as i32) - window_w / 2)
+                .clamp(0, self.room_size.0 as i32 - window_w / 2),
+            ((self.player_pos.y as i32) - window_h / 2)
+                .clamp(0, self.room_size.1 as i32 - window_h / 2),
         )
     }
 }
@@ -660,8 +658,8 @@ fn build_lightmap(world: &World, ctx: &mut Ctx) {
 
     world.run(|light: &mut Light, lp: &Pos| {
         let camera_pos = world.resource::<Ctx>().unwrap().camera_pos();
-        let x = lp.x + camera_pos.0 as f32;
-        let y = lp.y + camera_pos.1 as f32;
+        let x = lp.x - camera_pos.0 as f32;
+        let y = lp.y - camera_pos.1 as f32;
 
         build_shadow_mask(
             light,
@@ -723,8 +721,8 @@ fn build_shadow_mask(
     canvas: &mut Canvas<Window>,
 ) {
     // world space to screen space
-    let lp = Pos::new(lp.x + cp.x, lp.y + cp.y);
-
+    let lp = Pos::new(lp.x - cp.x, lp.y - cp.y);
+    
     canvas
         .with_texture_canvas(&mut lightmap.mask(), |shadow_mask_canvas| {
             // clear occlusion mask
@@ -739,10 +737,11 @@ fn build_shadow_mask(
             );
 
             world.run(|cg: &ColliderGroup, _: With<Wall>| {
-                if let Some(mut rect) = light_bounds.intersection(cg.nav.unwrap().bounds) {
-                    rect.x += cp.x as i32;
-                    rect.y += cp.y as i32;
+                let mut cg_bounds = cg.nav.unwrap().bounds;
+                cg_bounds.x -= cp.x as i32;
+                cg_bounds.y -= cp.y as i32;
 
+                if let Some(rect) = light_bounds.intersection(cg_bounds) {
                     let dx = lp.x as i32 - rect.center().x;
                     let dy = lp.y as i32 - rect.center().y;
 
