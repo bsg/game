@@ -189,6 +189,12 @@ pub struct Interactable {
 }
 
 #[derive(Component)]
+pub struct ProximityIndicator {
+    pub range: f32,
+    pub sprite: AnimatedSprite
+}
+
+#[derive(Component)]
 pub struct ParticleEmitter {
     pub is_active: bool,
     pub particle_cooldown: u32,

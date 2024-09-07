@@ -200,11 +200,7 @@ impl DepthBuffer {
         self.buffer.push(texture);
     }
 
-    pub fn draw_to_canvas(
-        &mut self,
-        canvas: &mut Canvas<Window>,
-        spritesheet: &Spritesheet,
-    ) {
+    pub fn draw_to_canvas(&mut self, canvas: &mut Canvas<Window>, spritesheet: &Spritesheet) {
         while let Some(draw_cmd) = self.buffer.pop() {
             spritesheet.draw_to_canvas(
                 canvas,
@@ -241,6 +237,7 @@ pub struct Input {
 
 pub struct Lightmap {
     lights: MaybeUninit<Texture>,
+    per_light_tex: MaybeUninit<Texture>,
     shadow_mask: MaybeUninit<Texture>,
     specular_map: MaybeUninit<Texture>,
 }
@@ -252,6 +249,12 @@ impl Lightmap {
             .create_texture_target(canvas.default_pixel_format(), w, h)
             .unwrap();
         lights.set_blend_mode(sdl2::render::BlendMode::Mul);
+
+        let mut per_light_tex = canvas
+            .texture_creator()
+            .create_texture_target(canvas.default_pixel_format(), w, h)
+            .unwrap();
+        per_light_tex.set_blend_mode(sdl2::render::BlendMode::Mul);
 
         let mut shadow_mask = canvas
             .texture_creator()
@@ -267,6 +270,7 @@ impl Lightmap {
 
         Lightmap {
             lights: MaybeUninit::new(lights),
+            per_light_tex: MaybeUninit::new(per_light_tex),
             shadow_mask: MaybeUninit::new(shadow_mask),
             specular_map: MaybeUninit::new(specular_map),
         }
@@ -276,24 +280,16 @@ impl Lightmap {
         unsafe { self.lights.assume_init_read() }
     }
 
-    pub fn lights_mut(&self) -> Texture {
-        unsafe { self.lights.assume_init_read() }
+    pub fn per_light_tex(&self) -> Texture {
+        unsafe { self.per_light_tex.assume_init_read() }
     }
 
     pub fn mask(&self) -> Texture {
         unsafe { self.shadow_mask.assume_init_read() }
     }
 
-    pub fn mask_mut(&self) -> Texture {
-        unsafe { self.shadow_mask.assume_init_read() }
-    }
-
     pub fn specular_map(&self) -> Texture {
         unsafe { self.specular_map.assume_init_read() }
-    }
-
-    pub fn specular_map_mut(&self) -> Texture {
-        unsafe { self.shadow_mask.assume_init_read() }
     }
 }
 
@@ -390,7 +386,7 @@ pub fn main() {
 
     animations.push("enemy_walk", &[(4, 0, 2, 2).into(), (6, 0, 2, 2).into()]);
 
-    animations.push("bullet", &[(11, 0, 1, 1).into(), (12, 0, 1, 1).into()]);
+    animations.push("bang", &[(10, 0, 1, 1).into(), (11, 0, 1, 1).into()]);
 
     animations.push("floor", &[(8, 0, 1, 1).into()]);
 
@@ -597,7 +593,9 @@ pub fn main() {
         ctx.canvas.clear();
 
         game::render(&world);
-        render_lights(&world, ctx);
+        build_lightmap(&world, ctx);
+        ctx.lightmap.lights().set_blend_mode(BlendMode::Mul);
+        ctx.canvas.copy(&ctx.lightmap.lights(), None, None).unwrap();
         ctx.canvas.copy(&ctx.ui_tex, None, None).unwrap();
 
         let end = Instant::now().duration_since(render_start);
@@ -650,39 +648,43 @@ pub fn main() {
     }
 }
 
-fn render_lights(world: &World, ctx: &mut Ctx) {
+fn build_lightmap(world: &World, ctx: &mut Ctx) {
     // TODO cull off-screen lights
     ctx.canvas
-        .with_texture_canvas(&mut ctx.lightmap.lights_mut(), |lightmap_canvas| {
-            let camera_pos = world.resource::<Ctx>().unwrap().camera_pos();
-
+        .with_texture_canvas(&mut ctx.lightmap.lights(), |lightmap_canvas| {
             // clear lightmap to ambient
             lightmap_canvas.set_draw_color(Color::RGB(70, 70, 70));
             lightmap_canvas.clear();
+        })
+        .unwrap();
 
-            world.run(|light: &mut Light, lp: &Pos| {
-                let x = lp.x + camera_pos.0 as f32;
-                let y = lp.y + camera_pos.1 as f32;
+    world.run(|light: &mut Light, lp: &Pos| {
+        let camera_pos = world.resource::<Ctx>().unwrap().camera_pos();
+        let x = lp.x + camera_pos.0 as f32;
+        let y = lp.y + camera_pos.1 as f32;
+
+        build_shadow_mask(
+            light,
+            *lp,
+            camera_pos.into(),
+            &ctx.lightmap,
+            world,
+            &mut ctx.canvas,
+        );
+
+        ctx.canvas
+            .with_texture_canvas(&mut ctx.lightmap.per_light_tex(), |per_light_canvas| {
+                per_light_canvas.set_draw_color(Color::RGB(0, 0, 0));
+                per_light_canvas.clear();
 
                 if light.radius > 0 && light.intensity > 0. {
-                    if ctx.shadows_enabled {
-                        build_shadow_mask(
-                            light,
-                            *lp,
-                            camera_pos.into(),
-                            &ctx.lightmap,
-                            world,
-                            lightmap_canvas,
-                        );
-                    }
-
                     ctx.light_tex.set_blend_mode(BlendMode::Add);
                     ctx.light_tex.set_color_mod(
                         (light.color.r as f32 * light.intensity) as u8,
                         (light.color.g as f32 * light.intensity) as u8,
                         (light.color.b as f32 * light.intensity) as u8,
                     );
-                    lightmap_canvas
+                    per_light_canvas
                         .copy(
                             &ctx.light_tex,
                             None,
@@ -694,15 +696,22 @@ fn render_lights(world: &World, ctx: &mut Ctx) {
                         )
                         .unwrap();
                 }
-                if ctx.shadows_enabled {
-                    lightmap_canvas
-                        .copy(&ctx.lightmap.mask(), None, None)
-                        .unwrap();
-                }
-            });
-        })
-        .unwrap();
-    ctx.canvas.copy(&ctx.lightmap.lights(), None, None).unwrap();
+
+                per_light_canvas
+                    .copy(&ctx.lightmap.mask(), None, None)
+                    .unwrap();
+            })
+            .unwrap();
+
+        ctx.canvas
+            .with_texture_canvas(&mut ctx.lightmap.lights(), |lightmap_canvas| {
+                ctx.lightmap.per_light_tex().set_blend_mode(BlendMode::Add);
+                lightmap_canvas
+                    .copy(&ctx.lightmap.per_light_tex(), None, None)
+                    .unwrap();
+            })
+            .unwrap();
+    });
 }
 
 fn build_shadow_mask(
@@ -713,8 +722,11 @@ fn build_shadow_mask(
     world: &World,
     canvas: &mut Canvas<Window>,
 ) {
+    // world space to screen space
+    let lp = Pos::new(lp.x + cp.x, lp.y + cp.y);
+
     canvas
-        .with_texture_canvas(&mut lightmap.mask_mut(), |shadow_mask_canvas| {
+        .with_texture_canvas(&mut lightmap.mask(), |shadow_mask_canvas| {
             // clear occlusion mask
             shadow_mask_canvas.set_draw_color(Color::RGB(255, 255, 255));
             shadow_mask_canvas.clear();
@@ -730,9 +742,6 @@ fn build_shadow_mask(
                 if let Some(mut rect) = light_bounds.intersection(cg.nav.unwrap().bounds) {
                     rect.x += cp.x as i32;
                     rect.y += cp.y as i32;
-
-                    // world space to screen space
-                    let lp = Pos::new(lp.x + cp.x, lp.y + cp.y);
 
                     let dx = lp.x as i32 - rect.center().x;
                     let dy = lp.y as i32 - rect.center().y;

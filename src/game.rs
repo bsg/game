@@ -11,8 +11,8 @@ use sdl2::{pixels::Color, render::Canvas, video::Window};
 use crate::{
     components::{
         AnimatedSprite, Chemlight, Collider, ColliderGroup, Enemy, Floor, Interactable, Light,
-        ParticleEmitter, PerfectlyGenericItem, Player, Pos, Projectile, Prop, Static, TestItem,
-        Torch, Wall, CH_HITBOX, CH_NAV, CH_NONE,
+        ParticleEmitter, PerfectlyGenericItem, Player, Pos, Projectile, Prop, ProximityIndicator,
+        Static, TestItem, Torch, Wall, CH_HITBOX, CH_NAV, CH_NONE,
     },
     math::{Vec2, Vec3},
     Ctx, DepthBuffer, DrawCmd,
@@ -148,6 +148,15 @@ fn spawn_lever(world: &World, pos: Pos, on_interact: fn(&World, Entity)) {
             None,
         ),
         &Interactable { on_interact },
+        &ProximityIndicator {
+            range: 64.,
+            sprite: AnimatedSprite::new(
+                (-16, -16, 16, 16),
+                15,
+                ctx.animations.get("bang").unwrap(),
+                Some(255),
+            ),
+        },
     ]);
 }
 
@@ -797,6 +806,18 @@ pub fn render(world: &World) {
             );
         })
         .unwrap();
+
+    world.run(
+        |indicator: &mut ProximityIndicator, pos: &Pos, mut ctx: ResMut<Ctx>| {
+            if ctx.player_pos.distance(pos) < indicator.range {
+                let mut draw_pos = *pos;
+                draw_pos.y -= 32.;
+                // FIXME don't recreate the AnimatedSprite
+                // FIXME needs to be drawn to the ui layer
+                draw(&mut ctx, &mut indicator.sprite, &draw_pos, camera_pos);
+            }
+        },
+    );
 
     // DEBUG
     if ctx.debug_draw_nav_colliders || ctx.debug_draw_hitboxes {
