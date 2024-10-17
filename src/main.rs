@@ -12,7 +12,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use components::{ColliderGroup, Inventory, Wall};
+use components::{ColliderGroup, Inventory, LightOccluder, LightOccluderGroup, Wall};
 use ecs::{Entity, Resource, With, World};
 use math::Vec3;
 use sdl2::{
@@ -351,6 +351,7 @@ pub fn main() {
     let window = video_subsystem
         .window("gaem", 800, 800)
         .position_centered()
+        .opengl()
         .build()
         .map_err(|e| e.to_string())
         .unwrap();
@@ -659,7 +660,14 @@ fn build_lightmap(world: &World, ctx: &mut Ctx) {
                 let y = lp.y - camera_pos.1 as f32;
 
                 if ctx.shadows_enabled {
-                    build_shadow_mask(light, *lp, camera_pos.into(), &ctx.lightmap, world, lightmap_canvas);
+                    build_shadow_mask(
+                        light,
+                        *lp,
+                        camera_pos.into(),
+                        &ctx.lightmap,
+                        world,
+                        lightmap_canvas,
+                    );
                 }
 
                 lightmap_canvas
@@ -724,58 +732,48 @@ fn build_shadow_mask(
                 light.radius as u32 * 2,
             );
 
-            world.run(|cg: &ColliderGroup, _: With<Wall>| {
-                let mut cg_bounds = cg.nav.unwrap().bounds;
-                cg_bounds.x -= cp.x as i32;
-                cg_bounds.y -= cp.y as i32;
+            world.run(|og: &LightOccluderGroup, pos: &Pos| {
+                for occluder in og.occluders.into_iter().flatten() {
+                    let mut p0 = occluder.line.0;
+                    let mut p1 = occluder.line.1;
+                    p0.x -= cp.x as i32 - pos.x as i32;
+                    p0.y -= cp.y as i32 - pos.y as i32;
+                    p1.x -= cp.x as i32 - pos.x as i32;
+                    p1.y -= cp.y as i32 - pos.y as i32;
 
-                if let Some(rect) = light_bounds.intersection(cg_bounds) {
-                    let dx = lp.x as i32 - rect.center().x;
-                    let dy = lp.y as i32 - rect.center().y;
+                    if light_bounds.intersect_line(p0, p1).is_some() {
+                        let theta_0 = f32::atan2(lp.y - p0.y as f32, lp.x - p0.x as f32);
+                        let theta_1 = f32::atan2(lp.y - p1.y as f32, lp.x - p1.x as f32);
 
-                    let p0 = if dx.signum() == dy.signum() {
-                        rect.bottom_left()
-                    } else {
-                        rect.top_left()
-                    };
+                        // TODO extrapolate p0' and p1' to screen edge
+                        let p0_prime = (
+                            lp.x as i32 - (theta_0.cos() * light.radius as f32 * 10.) as i32,
+                            lp.y as i32 - (theta_0.sin() * light.radius as f32 * 10.) as i32,
+                        );
 
-                    let p1 = if dx.signum() == dy.signum() {
-                        rect.top_right()
-                    } else {
-                        rect.bottom_right()
-                    };
+                        let p1_prime = (
+                            lp.x as i32 - (theta_1.cos() * light.radius as f32 * 10.) as i32,
+                            lp.y as i32 - (theta_1.sin() * light.radius as f32 * 10.) as i32,
+                        );
 
-                    let theta_0 = f32::atan2(lp.y - p0.y as f32, lp.x - p0.x as f32);
-                    let theta_1 = f32::atan2(lp.y - p1.y as f32, lp.x - p1.x as f32);
-
-                    // TODO should calculate p0' and p1' on the tangent line at p_t
-                    let p0_prime = (
-                        lp.x as i32 - (theta_0.cos() * light.radius as f32 * 2.) as i32,
-                        lp.y as i32 - (theta_0.sin() * light.radius as f32 * 2.) as i32,
-                    );
-
-                    let p1_prime = (
-                        lp.x as i32 - (theta_1.cos() * light.radius as f32 * 2.) as i32,
-                        lp.y as i32 - (theta_1.sin() * light.radius as f32 * 2.) as i32,
-                    );
-
-                    shadow_mask_canvas
-                        .filled_polygon(
-                            &[
-                                p0.x as i16,
-                                p1.x as i16,
-                                p1_prime.0 as i16,
-                                p0_prime.0 as i16,
-                            ],
-                            &[
-                                p0.y as i16,
-                                p1.y as i16,
-                                p1_prime.1 as i16,
-                                p0_prime.1 as i16,
-                            ],
-                            Color::RGB(0, 0, 0),
-                        )
-                        .unwrap();
+                        shadow_mask_canvas
+                            .filled_polygon(
+                                &[
+                                    p0.x as i16,
+                                    p1.x as i16,
+                                    p1_prime.0 as i16,
+                                    p0_prime.0 as i16,
+                                ],
+                                &[
+                                    p0.y as i16,
+                                    p1.y as i16,
+                                    p1_prime.1 as i16,
+                                    p0_prime.1 as i16,
+                                ],
+                                Color::RGB(0, 0, 0),
+                            )
+                            .unwrap();
+                    }
                 }
             });
         })

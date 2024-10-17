@@ -3,16 +3,19 @@
 // TODO how do we wanna scale sprites around entity centerpoint?
 // FIXME fix shadows
 // FIXME colliders are still fucky
+// TODO don't update colliders for static entities
+// FIXME we're leaking memory and the shadow maps are prime sus
 
 use ecs::{Entity, Res, ResMut, With, Without, World};
 use rand::{thread_rng, Rng};
-use sdl2::pixels::Color;
+use sdl2::{pixels::Color, rect::Point};
 
 use crate::{
     components::{
         AnimatedSprite, Chemlight, Collider, ColliderGroup, Enemy, Floor, Interactable, Light,
-        ParticleEmitter, PerfectlyGenericItem, Player, Pos, Projectile, Prop, ProximityIndicator,
-        Static, TestItem, Torch, Wall, CH_HITBOX, CH_NAV, CH_NONE,
+        LightOccluder, LightOccluderGroup, ParticleEmitter, PerfectlyGenericItem, Player, Pos,
+        Projectile, Prop, ProximityIndicator, Static, TestItem, Torch, Wall, CH_HITBOX, CH_NAV,
+        CH_NONE,
     },
     math::{Vec2, Vec3},
     Ctx, DepthBuffer, DrawCmd,
@@ -36,32 +39,32 @@ pub fn init(world: &World) {
     }
 
     for x in 0..64 {
-        spawn_wall(world, tile_to_pos(x, 1));
+        spawn_wall(world, tile_to_pos(x, 1), false, false);
 
         if x != 7 && x != 8 {
-            spawn_wall(world, tile_to_pos(x, 8));
+            spawn_wall(world, tile_to_pos(x, 8), x == 9, x == 8);
         }
     }
 
     for x in 0..64 {
         if x != 12 {
-            spawn_wall(world, tile_to_pos(x, 18));
+            spawn_wall(world, tile_to_pos(x, 18), x == 13, x == 11);
         }
     }
 
-    spawn_wall(world, tile_to_pos(16, 15));
-    spawn_wall(world, tile_to_pos(16, 16));
-    spawn_wall(world, tile_to_pos(16, 17));
+    spawn_wall(world, tile_to_pos(16, 15), true, true);
+    spawn_wall(world, tile_to_pos(16, 16), true, true);
+    spawn_wall(world, tile_to_pos(16, 17), true, true);
 
-    spawn_torch(world, Pos::new(350.0, 570.0));
-    spawn_torch(world, Pos::new(600.0, 200.0));
+    spawn_torch(world, (350.0, 570.0).into());
+    spawn_torch(world, (600.0, 200.0).into());
 
     world.resource_mut::<Ctx>().unwrap().particle_emitter_entity =
-        Some(spawn_particle_emitter(world, Pos::new(540.0, 640.0)));
+        Some(spawn_particle_emitter(world, (540.0, 640.0).into()));
 
     spawn_lever(
         world,
-        Pos::new(200.0, 200.0),
+        (200.0, 200.0).into(),
         move |world: &World, me: Entity| {
             let sprite = world.component_mut::<AnimatedSprite>(me).unwrap();
             sprite.flip_horizontal = !sprite.flip_horizontal;
@@ -198,7 +201,7 @@ fn spawn_floor(world: &World, pos: Pos) -> Entity {
     ])
 }
 
-fn spawn_wall(world: &World, pos: Pos) -> Entity {
+fn spawn_wall(world: &World, pos: Pos, occlude_left: bool, occlude_right: bool) -> Entity {
     let ctx = world.resource::<Ctx>().unwrap();
     world.spawn(&[
         &Static {},
@@ -218,6 +221,28 @@ fn spawn_wall(world: &World, pos: Pos) -> Entity {
                 None,
             )),
             hitbox: None,
+        },
+        &LightOccluderGroup {
+            occluders: [
+                Some(LightOccluder {
+                    line: (Point::new(-16, -16), Point::new(16, -16)),
+                }),
+                if occlude_left {
+                    Some(LightOccluder {
+                        line: (Point::new(-16, -16), Point::new(-16, 15)),
+                    })
+                } else {
+                    None
+                },
+                if occlude_right {
+                    Some(LightOccluder {
+                        line: (Point::new(16, -16), Point::new(16, 15)),
+                    })
+                } else {
+                    None
+                },
+                None,
+            ],
         },
     ])
 }
@@ -703,18 +728,21 @@ pub fn render(world: &World) {
         update_anim(anim, frames.len() - 1);
     }
 
+    // draw floors
     world.run(
         |pos: &mut Pos, sprite: &mut AnimatedSprite, mut ctx: ResMut<Ctx>, _: With<Floor>| {
             draw(&mut ctx, sprite, pos, camera_pos);
         },
     );
 
+    // draw props
     world.run(
         |pos: &mut Pos, sprite: &mut AnimatedSprite, mut ctx: ResMut<Ctx>, _: With<Prop>| {
             draw(&mut ctx, sprite, pos, camera_pos);
         },
     );
 
+    // draw sprites
     world.run(
         |pos: &mut Pos,
          sprite: &mut AnimatedSprite,

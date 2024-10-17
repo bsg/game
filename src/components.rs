@@ -4,7 +4,10 @@ use std::ops::{Deref, DerefMut};
 
 use crate::{math::Vec2, AnimationId, Ctx, Sprite};
 use ecs::{Component, Entity, With, World};
-use sdl2::{pixels::Color, rect::Rect};
+use sdl2::{
+    pixels::Color,
+    rect::{Point, Rect},
+};
 
 #[derive(Component)]
 pub struct Pos(Vec2<f32>);
@@ -153,6 +156,16 @@ pub struct ColliderGroup {
 }
 
 #[derive(Component)]
+pub struct LightOccluder {
+    pub line: (Point, Point),
+}
+
+#[derive(Component)]
+pub struct LightOccluderGroup {
+    pub occluders: [Option<LightOccluder>; 4],
+}
+
+#[derive(Component)]
 pub struct Player {
     pub fire_cooldown: usize,
     pub can_fire_in: usize,
@@ -191,7 +204,7 @@ pub struct Interactable {
 #[derive(Component)]
 pub struct ProximityIndicator {
     pub range: f32,
-    pub sprite: AnimatedSprite
+    pub sprite: AnimatedSprite,
 }
 
 #[derive(Component)]
